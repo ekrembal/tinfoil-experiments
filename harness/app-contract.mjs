@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parse } from 'parse5';
 import { icons } from 'lucide-react';
+import { files } from './provenance.mjs';
 
 const categories=new Set(['Productivity','Finance','Social','AI','Health','Utilities','Games','Education']);
 function relative(value,label) {
@@ -29,12 +30,17 @@ export async function validateApp(dist) {
   }
   visit(html);
   if(!manifests.length)throw new Error('web manifest required');
+  const local=new Set((await files(dist)).filter(file=>file.endsWith('.webmanifest')||path.posix.basename(file)==='manifest.json'));
   for(const href of manifests){
+    if(/^https:\/\//i.test(href.trim()))continue;
     const url=new URL(href,'https://app.invalid/');
-    if(url.origin!=='https://app.invalid')throw new Error('web manifest must be included in dist');
+    if(url.origin!=='https://app.invalid')throw new Error('web manifest must be local or HTTPS');
     const rel=decodeURIComponent(url.pathname).slice(1),file=path.resolve(dist,rel);
     if(file===path.resolve(dist)||!file.startsWith(path.resolve(dist)+path.sep))throw new Error('unsafe web manifest path');
-    const manifest=JSON.parse(await readFile(file,'utf8'));
+    local.add(rel);
+  }
+  for(const rel of local){
+    const manifest=JSON.parse(await readFile(path.join(dist,rel),'utf8'));
     for(const name of ['start_url','scope'])if(manifest[name]!==undefined)relative(manifest[name],`web manifest ${name}`);
     if(manifest.icons!==undefined){
       if(!Array.isArray(manifest.icons))throw new Error('invalid web manifest icons');
