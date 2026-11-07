@@ -16,7 +16,6 @@ containers:
     image: ghcr.io/ekrembal/tinfoil-experiments@sha256:1a4961d1533f578639eafffd672444bd91c0869c98898b3ecb5cdbca68cb7031
     command: ["node", "harness/start.mjs"]
     keys: [job-signing]
-    attestation: true
     networks: [internal]
     tmpfs:
       /tmp: "rw,noexec,size=4096"
@@ -31,7 +30,8 @@ containers:
       - HOME: "/root"
       - SIGNER_BIND_ADDRESS: "172.31.255.2"
       - WORKER_URL: "http://worker:8081"
-      - JOBS_BEARER_TOKEN: "diagnostic-dummy-bearer-not-production"
+    secrets:
+      - JOBS_BEARER_TOKEN
   - name: worker
     image: ghcr.io/ekrembal/tinfoil-experiments@sha256:1a4961d1533f578639eafffd672444bd91c0869c98898b3ecb5cdbca68cb7031
     command: ["node", "harness/worker-start.mjs"]
@@ -46,7 +46,8 @@ containers:
       - JOB_TIMEOUT_SECONDS: "900"
       - HOME: "/root"
       - SIGNER_HOST: "signer"
-      - TINFOIL_API_KEY: "diagnostic-dummy-inference-not-production"
+    secrets:
+      - TINFOIL_API_KEY
 shim:
   upstream-container: signer
   upstream-port: 8080
