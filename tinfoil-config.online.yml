@@ -1,0 +1,55 @@
+cvm-version: "0.14.12"
+cpus: 2
+memory: 8192
+attested-keys:
+  - id: job-signing
+    key: ed25519
+networks:
+  internal:
+    egress: closed
+  internet:
+    egress: open
+containers:
+  - name: signer
+    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:32db1369fbb1c3e195aa02b5f5c77d51c2254acb6871a0b42ff2f21b6b38e555
+    command: ["node", "harness/start.mjs"]
+    keys: [job-signing]
+    attestation: true
+    networks: [internal]
+    tmpfs:
+      /tmp: "rw,noexec,size=4096"
+      /data: "rw,noexec,size=1m"
+      /workspaces: "rw,noexec,size=1m"
+      /root: "rw,noexec,size=4096"
+    env:
+      - HARNESS_IMAGE_DIGEST: "sha256:32db1369fbb1c3e195aa02b5f5c77d51c2254acb6871a0b42ff2f21b6b38e555"
+      - CONFIG_REPO: "ekrembal/tinfoil-experiments"
+      - APP_PROFILE: "online"
+      - MODEL: "deepseek-v4-1-flash"
+      - JOB_TIMEOUT_SECONDS: "900"
+      - HOME: "/root"
+      - SIGNER_BIND_ADDRESS: "172.31.255.2"
+      - WORKER_URL: "http://worker:8081"
+    secrets:
+      - JOBS_BEARER_TOKEN
+  - name: worker
+    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:32db1369fbb1c3e195aa02b5f5c77d51c2254acb6871a0b42ff2f21b6b38e555
+    command: ["node", "harness/worker-start.mjs"]
+    networks: [internet, internal]
+    tmpfs:
+      /tmp: "rw,noexec,size=4096"
+      /data: "rw,noexec,size=1m"
+      /workspaces: "rw,exec"
+      /root: "rw,noexec,size=4096"
+    env:
+      - APP_PROFILE: "online"
+      - MODEL: "deepseek-v4-1-flash"
+      - JOB_TIMEOUT_SECONDS: "900"
+      - HOME: "/root"
+      - SIGNER_HOST: "signer"
+    secrets:
+      - TINFOIL_API_KEY
+shim:
+  upstream-container: signer
+  upstream-port: 8080
+  paths: ["/jobs", "/jobs/*"]

@@ -8,8 +8,10 @@ import path from 'node:path';
 import * as tar from 'tar';
 import { AGENT } from './runner.mjs';
 import { attest,attestationMode,canonical,sha256,sha256File,describeDist,signingKey,signature,verifyEnvelope } from './provenance.mjs';
+import { buildProfile } from './profile.mjs';
 
 const dev=process.env.DEV_MODE==='1', token=process.env.JOBS_BEARER_TOKEN;
+const profile=buildProfile(process.env.APP_PROFILE??(dev?'offline':undefined));
 if(process.env.TINFOIL_API_KEY)throw new Error('signer must not receive the inference key');
 const workerURL=new URL(process.env.WORKER_URL||'http://worker:8081');
 const bindAddress=process.env.SIGNER_BIND_ADDRESS||'0.0.0.0';
@@ -37,7 +39,7 @@ async function run(job,prompt,parent) {
       const response=await fetch(new URL(route,workerURL),{...options,signal:AbortSignal.timeout(remaining),redirect:'error'});
       if(!response.ok)throw new Error(`worker HTTP ${response.status}`);return response;
     };
-    const created=await(await request('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})})).json();
+    const created=await(await request('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,profile:profile.profile})})).json();
     if(!/^[0-9a-f-]{36}$/.test(created.id))throw new Error('invalid worker job ID');
     const route=`/jobs/${created.id}`;
     let result;
@@ -51,6 +53,7 @@ async function run(job,prompt,parent) {
     await pipeline(Readable.fromWeb((await request(`${route}/log`)).body),createWriteStream(rawLogPath,{mode:0o600}));
     if(result.status==='failed')throw new Error('worker job failed');
     if(canonical(result.metadata?.agent)!==canonical(AGENT)||result.metadata.model!==(process.env.MODEL||'deepseek-v4-1-flash'))throw new Error('unexpected worker agent or model');
+    if(result.metadata.profile!==profile.profile||canonical(result.metadata.worker_egress)!==canonical(profile.worker_egress))throw new Error('worker profile mismatch');
     const archive=path.join(dir,'artifact.tar.gz');
     await pipeline(Readable.fromWeb((await request(`${route}/artifact`)).body),createWriteStream(archive,{mode:0o600}));
     let unsafe=false;
@@ -68,6 +71,7 @@ async function run(job,prompt,parent) {
     statement.predicate.agent=AGENT;
     statement.predicate.transcript={name:'pi.jsonl',sha256:transcript_sha256};
     statement.predicate.attestation_mode=attestation_mode;
+    Object.assign(statement.predicate,profile);
     const attestation=attestation_mode==='dev'?{type:'dev/none'}:attestation_mode==='attested-key'?{type:'tinfoil/attested-key'}:await attest(statement);
     const envelope={statement,...signature(statement,key),attestation,...(parent?{parent}:{})};
     await writeFile(path.join(dir,'statement.json'),JSON.stringify(envelope,null,2));

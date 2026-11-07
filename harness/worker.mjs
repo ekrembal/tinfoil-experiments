@@ -9,7 +9,9 @@ import { lookup } from 'node:dns/promises';
 import * as tar from 'tar';
 import { runAgent,execute,prepareWorkspace,AGENT } from './runner.mjs';
 import { files } from './provenance.mjs';
+import { buildProfile } from './profile.mjs';
 
+const profile=buildProfile(process.env.APP_PROFILE??(process.env.DEV_MODE==='1'?'offline':undefined));
 const timeoutMs=Number(process.env.JOB_TIMEOUT_SECONDS||'900')*1000;
 if(!Number.isSafeInteger(timeoutMs)||timeoutMs<=0||timeoutMs>2147483647)throw new Error('invalid job wall-clock timeout');
 if(process.env.JOBS_BEARER_TOKEN)throw new Error('worker must not receive the signer bearer token');
@@ -36,12 +38,13 @@ async function run(job,prompt) {
     await writeFile(path.join(dir,'pi.jsonl'),'');
     await cp('/opt/app/templates/react',workspace,{recursive:true});
     await prepareWorkspace(workspace);
-    await execute(workspace,'pnpm',['install','--offline','--frozen-lockfile','--ignore-scripts','--store-dir=/opt/store'],log,{}, {timeoutMs:deadline-Date.now()});
+    const install=profile.profile==='offline'?['install','--offline','--frozen-lockfile','--ignore-scripts','--store-dir=/opt/store']:['install','--frozen-lockfile','--ignore-scripts',`--store-dir=${path.join(workspace,'.pnpm-store')}`];
+    await execute(workspace,'pnpm',install,log,{}, {timeoutMs:deadline-Date.now()});
     const inference=await runAgent(workspace,prompt,process.env.MODEL||'deepseek-v4-1-flash',log,{dev:process.env.DEV_MODE==='1',mockURL:process.env.MOCK_INFERENCE_URL,rawLogPath:path.join(dir,'pi.jsonl'),timeoutMs:deadline-Date.now()});
     await execute(workspace,'pnpm',['build'],log,{}, {timeoutMs:deadline-Date.now()});
     await files(path.join(workspace,'dist'));
     await tar.c({gzip:true,file:path.join(dir,'artifact.tar.gz'),cwd:workspace,portable:true,mtime:new Date(0),noMtime:true},['dist']);
-    job.metadata={agent:AGENT,model:process.env.MODEL||'deepseek-v4-1-flash',inference_verification:inference};
+    job.metadata={...profile,agent:AGENT,model:process.env.MODEL||'deepseek-v4-1-flash',inference_verification:inference};
     job.status='completed';
   }catch(error){job.status='failed';log(`ERROR: ${error.message}\n`);}finally{busy=false;}
 }
@@ -52,6 +55,7 @@ const server=http.createServer(async(req,res)=>{
       let data='';for await(const chunk of req){data+=chunk;if(data.length>2*1024*1024)return json(res,413,{error:'request too large'});}
       let body;try{body=JSON.parse(data);}catch{return json(res,400,{error:'invalid JSON'});}
       if(typeof body.prompt!=='string'||!body.prompt.trim()||body.prompt.length>64000)return json(res,400,{error:'nonempty prompt (max 64000 characters) required'});
+      if(body.profile!==profile.profile)return json(res,400,{error:'worker profile mismatch'});
       if(busy)return json(res,409,{error:'one job at a time'});
       const job={id:randomUUID(),status:'queued',logs:''};jobs.set(job.id,job);void run(job,body.prompt);
       return json(res,202,{id:job.id});

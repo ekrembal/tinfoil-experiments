@@ -26,6 +26,7 @@ containers:
     env:
       - HARNESS_IMAGE_DIGEST: "sha256:32db1369fbb1c3e195aa02b5f5c77d51c2254acb6871a0b42ff2f21b6b38e555"
       - CONFIG_REPO: "ekrembal/tinfoil-experiments"
+      - APP_PROFILE: "offline"
       - MODEL: "deepseek-v4-1-flash"
       - JOB_TIMEOUT_SECONDS: "900"
       - HOME: "/root"
@@ -43,6 +44,7 @@ containers:
       /workspaces: "rw,exec,size=212m"
       /root: "rw,noexec,size=4096"
     env:
+      - APP_PROFILE: "offline"
       - MODEL: "deepseek-v4-1-flash"
       - JOB_TIMEOUT_SECONDS: "900"
       - HOME: "/root"
