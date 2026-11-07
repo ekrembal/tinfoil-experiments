@@ -58,6 +58,7 @@ Set `JOBS_BEARER_TOKEN` (at least 16 characters) as a Tinfoil secret. Every rout
 * `GET /jobs/:id` → `{id,status,logs}`. States: queued/running/completed/failed.
 * `GET /jobs/:id/artifact` → gzip tar containing `dist/` (409 before completed).
 * `GET /jobs/:id/statement` → signed envelope (409 before completed).
+* `GET /jobs/:id/log` → streamed raw Pi JSON events, including thinking and tool contents, with the same bearer authentication. Available during execution and after failures (409 until the file exists). Running downloads are partial snapshots; the signed hash applies to the completed log.
 
 Example (use an attestation-verifying client or `tinfoil http` for a real enclave, rather than trusting ordinary HTTPS alone):
 
@@ -67,7 +68,7 @@ curl -H "Authorization: Bearer $JOBS_BEARER_TOKEN" \
   -d '{"prompt":"Build an offline encrypted notes PWA"}' http://localhost:8080/jobs
 ```
 
-The service intentionally runs one job at a time (409 while busy), limits input/log sizes and process duration, and has an in-memory status index. Results/workspaces remain on local disk until the container is removed; no retention service or restart recovery is implemented. Do not expose this to untrusted users.
+The service intentionally runs one job at a time (409 while busy), limits input size, and has an in-memory status index. `JOB_TIMEOUT_SECONDS` is caller policy for the process wall-clock budget (default 900 seconds, shared by install, Pi and build). Log volume never terminates Pi. Raw stdout streams byte-for-byte to a root-owned `0600` per-job `.pi.jsonl` beside its workspace under `/workspaces`; JSON event parsing is streaming, including large strings. Only a bounded human-readable assistant/tool summary tail is retained for job status; thinking deltas are omitted. Results, workspaces and logs remain on local storage until the container is removed; optionally mount a suitably sized tmpfs at `/workspaces`. Disk/write errors fail the job rather than silently losing the transcript. No retention service or restart recovery is implemented. Do not expose this to untrusted users.
 
 ## Offline toolchain
 
@@ -90,6 +91,8 @@ This is specific to pinned **proxy 0.2.9 → tinfoil-go 0.16.2**, with explicit 
 
 ## Statements and verification
 
+The signed `predicate.transcript.sha256` commits to every byte of Pi's full stdout JSON event stream. Optional verifier `--log pi.jsonl` recomputes this hash without loading the log into memory. Stderr and wrapper build output are summarized separately, not part of this commitment. Transcript contents are untrusted and may be sensitive; the hash does not certify the truth of agent narration.
+
 The envelope contains `statement`, SPKI PEM `public_key`, base64 Ed25519 `signature`, `attestation`, and optionally the full recursive `parent` envelope. The signed in-toto-like statement records image digest, expected config repository (not a self-reported commit), agent/version, model, exact prompt and SHA-256, parent statement SHA-256, tarball SHA-256, per-file SHA-256/size and the root UnixFS CIDv1 of `dist/`.
 
 Canonicalization is this project's recursively sorted-key compact JSON (`canonical` in `harness/provenance.mjs`), UTF-8, no newline; it is not a claim of RFC 8785 interoperability for arbitrary JSON numbers. The Ed25519 signature covers exactly those bytes. The nonce is `sha256(canonical(statement))` as 64 lowercase hex characters, requested via `/tinfoil/attestation.sock` at the documented `/.well-known/tinfoil-attestation` path. This binds a fresh quote to output content; it is **not** a verifier-chosen random freshness challenge and does not prove a wall-clock build time.
@@ -97,7 +100,7 @@ Canonicalization is this project's recursively sorted-key compact JSON (`canonic
 The signer loads `/run/tinfoil/keys/job-signing/private_key.pem`. The verifier checks the signature, nonce-bound V3 quote against the caller's **expected** config repo, and that `crypto_material` endorses exactly the signing key's SPKI DER. It also verifies every parent signature/attestation/hash recursively (max 32 ancestors), tarball SHA-256, extracted per-file manifest and UnixFS CID. Symlinks/special files and unsafe archives are rejected. The CID uses SHA-256, CIDv1, raw leaves, fixed 256-KiB chunks and UnixFS balanced layout, matching `ipfs add --cid-version=1 -r dist` defaults. No IPFS upload or daemon is involved. Empty directories are included.
 
 ```sh
-node verifier/cli.mjs statement.json artifact.tar.gz --repo ekrembal/tinfoil-experiments
+node verifier/cli.mjs statement.json artifact.tar.gz --repo ekrembal/tinfoil-experiments --log pi.jsonl
 ```
 
 The official V3 JavaScript verifier source is vendored unmodified at a pinned upstream commit because npm `tinfoil`/`@tinfoilsh/verifier 1.4.0` cannot verify the socket's nonce-bound V3 attested-key documents. See `verifier/vendor/PROVENANCE.md` (Apache-2.0). It verifies AMD/Intel hardware signatures, authenticated workload/config provenance and measurement/key binding with embedded trust roots and document collateral, without network calls. Do not replace this with signature-only checking.

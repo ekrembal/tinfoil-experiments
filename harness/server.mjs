@@ -1,4 +1,6 @@
 import http from 'node:http';
+import { createReadStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { mkdir, cp, writeFile, readFile, chmod } from 'node:fs/promises';
 import path from 'node:path';
@@ -7,6 +9,8 @@ import { runAgent,execute,prepareWorkspace,AGENT } from './runner.mjs';
 import { attest,canonical,sha256,describeDist,signingKey,signature,verifyEnvelope } from './provenance.mjs';
 
 const dev=process.env.DEV_MODE==='1', token=process.env.JOBS_BEARER_TOKEN;
+const timeoutMs=Number(process.env.JOB_TIMEOUT_SECONDS||'900')*1000;
+if(!Number.isSafeInteger(timeoutMs)||timeoutMs<=0||timeoutMs>2147483647)throw new Error('JOB_TIMEOUT_SECONDS must be a positive supported wall-clock timeout');
 if(!token || token.length<16)throw new Error('JOBS_BEARER_TOKEN must be at least 16 characters');
 if(!dev && (!/^sha256:[0-9a-f]{64}$/.test(process.env.HARNESS_IMAGE_DIGEST||'') || !process.env.CONFIG_REPO))throw new Error('production requires image digest and expected config repository');
 const root=path.resolve(process.env.DATA_DIR||'/data'), key=await signingKey(dev),jobs=new Map();
@@ -18,15 +22,17 @@ function json(res,status,value){res.writeHead(status,{'Content-Type':'applicatio
 async function run(job,prompt,parent) {
   busy=true;job.status='running';
   const dir=path.join(root,job.id),workspace=path.join(workRoot,job.id);
+  const rawLogPath=path.join(workRoot,`${job.id}.pi.jsonl`),deadline=Date.now()+timeoutMs;
   const log=s=>{job.logs=(job.logs+s).slice(-1024*1024);console.log(`[${job.id}] ${s.trimEnd()}`);};
   try {
     await mkdir(dir,{recursive:true,mode:0o700});
+    await writeFile(rawLogPath,'',{mode:0o600});
     await cp('/opt/app/templates/react',workspace,{recursive:true});
     await prepareWorkspace(workspace);
-    await execute(workspace,'pnpm',['install','--offline','--frozen-lockfile','--ignore-scripts','--store-dir=/opt/store'],log);
-    const inference=await runAgent(workspace,prompt,process.env.MODEL||'deepseek-v4-1-flash',log,{dev,mockURL:process.env.MOCK_INFERENCE_URL});
+    await execute(workspace,'pnpm',['install','--offline','--frozen-lockfile','--ignore-scripts','--store-dir=/opt/store'],log,{}, {timeoutMs:deadline-Date.now()});
+    const inference=await runAgent(workspace,prompt,process.env.MODEL||'deepseek-v4-1-flash',log,{dev,mockURL:process.env.MOCK_INFERENCE_URL,rawLogPath,timeoutMs:deadline-Date.now()});
     await prepareWorkspace(workspace);
-    await execute(workspace,'pnpm',['build'],log);
+    await execute(workspace,'pnpm',['build'],log,{}, {timeoutMs:deadline-Date.now()});
     // Snapshot the build into root-owned results before hashing.
     const dist=path.join(dir,'dist');await cp(path.join(workspace,'dist'),dist,{recursive:true,dereference:false});
     const description=await describeDist(dist);
@@ -35,6 +41,7 @@ async function run(job,prompt,parent) {
     await tar.c({gzip:true,file:archive,cwd:dir,portable:true,mtime:new Date(0),noMtime:true},['dist']);
     const statement={_type:'https://in-toto.io/Statement/v1',subject:[{name:'dist.tar.gz',digest:{sha256:sha256(await readFile(archive))}}],predicateType:'https://attestai.local/job/v1',predicate:{mode:dev?'dev':'tinfoil',harness_image_digest:process.env.HARNESS_IMAGE_DIGEST||'dev/unpinned',config:{repo:process.env.CONFIG_REPO||'ekrembal/tinfoil-experiments'},model:process.env.MODEL||'deepseek-v4-1-flash',prompt,prompt_sha256:sha256(prompt),parent_statement_sha256:parent?sha256(canonical(parent.statement)):null,artifact:description,inference_verification:inference}};
     statement.predicate.agent=AGENT;
+    statement.predicate.transcript={name:'pi.jsonl',sha256:inference.transcript_sha256};
     const envelope={statement,...signature(statement,key),attestation:dev?{type:'dev/none'}:await attest(statement),...(parent?{parent}:{})};
     await writeFile(path.join(dir,'statement.json'),JSON.stringify(envelope,null,2));
     job.status='completed';log('job completed\n');
@@ -57,15 +64,22 @@ const server=http.createServer(async(req,res)=>{
       void run(job,body.prompt,body.parent_statement);
       return json(res,202,{id:job.id});
     }
-    const match=/^\/jobs\/([0-9a-f-]{36})(?:\/(artifact|statement))?$/.exec(req.url);
+    const match=/^\/jobs\/([0-9a-f-]{36})(?:\/(artifact|statement|log))?$/.exec(req.url);
     if(req.method!=='GET'||!match||!jobs.has(match[1]))return json(res,404,{error:'not found'});
     const job=jobs.get(match[1]);
     if(!match[2])return json(res,200,job);
+    if(match[2]==='log'){
+      const stream=createReadStream(path.join(workRoot,`${job.id}.pi.jsonl`));
+      try {await new Promise((resolve,reject)=>{stream.once('open',resolve);stream.once('error',reject);});}
+      catch(error){if(error.code==='ENOENT')return json(res,409,{error:'log not available yet'});throw error;}
+      res.writeHead(200,{'Content-Type':'application/x-ndjson'});
+      await pipeline(stream,res);return;
+    }
     if(job.status!=='completed')return json(res,409,{error:'job not completed'});
     const artifact=match[2]==='artifact';
     res.writeHead(200,{'Content-Type':artifact?'application/gzip':'application/json'});
     res.end(await readFile(path.join(root,job.id,artifact?'artifact.tar.gz':'statement.json')));
-  }catch(error){json(res,500,{error:error.message});}
+  }catch(error){if(res.headersSent){res.destroy(error);return;}json(res,500,{error:error.message});}
 });
 server.requestTimeout=30000;
 server.listen(Number(process.env.PORT||8080),'0.0.0.0',()=>console.log('attestai harness listening on 8080'));

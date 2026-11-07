@@ -19,6 +19,7 @@ containers:
       - HARNESS_IMAGE_DIGEST: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
       - CONFIG_REPO: "ekrembal/tinfoil-experiments"
       - MODEL: "deepseek-v4-1-flash"
+      - JOB_TIMEOUT_SECONDS: "900"
     secrets:
       - JOBS_BEARER_TOKEN
       - TINFOIL_API_KEY

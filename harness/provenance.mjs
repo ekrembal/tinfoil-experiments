@@ -2,11 +2,17 @@ import { createHash, createPublicKey, generateKeyPairSync, sign, verify } from '
 import { readFile, readdir, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
+import { createReadStream } from 'node:fs';
 import { importer } from 'ipfs-unixfs-importer';
 import { MemoryBlockstore } from 'blockstore-core/memory';
 import { Verifier, KEY_SPKI_V1_FORMAT } from '../verifier/vendor/dist/index.js';
 
 export const sha256 = value => createHash('sha256').update(value).digest('hex');
+export async function sha256File(file) {
+  const hash=createHash('sha256');
+  for await(const chunk of createReadStream(file))hash.update(chunk);
+  return hash.digest('hex');
+}
 export function canonical(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;

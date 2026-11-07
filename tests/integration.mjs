@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdir, rm, mkdtemp, readFile } from 'node:fs/promises';
 import * as tar from 'tar';
 import { mockServer } from './mock.mjs';
 import { verifyArtifact } from '../verifier/cli.mjs';
+import { execute,prepareWorkspace } from '../harness/runner.mjs';
+import { sha256 } from '../harness/provenance.mjs';
 const token='integration-test-token-not-a-secret';
 const mockAPI=mockServer();await new Promise(r=>mockAPI.listen(3400,'127.0.0.1',r));
 const child=spawn('node',['harness/start.mjs'],{cwd:'/opt/app',env:{...process.env,DEV_MODE:'1',MOCK_INFERENCE_URL:'http://127.0.0.1:3400',JOBS_BEARER_TOKEN:token},stdio:['ignore','pipe','pipe']});
@@ -13,6 +15,7 @@ const get=(url,init={})=>fetch('http://127.0.0.1:8080'+url,{...init,headers});
 try {
   for(let i=0;i<100;i++){try{await get('/jobs/not-found');break;}catch{await new Promise(r=>setTimeout(r,100));}}
   assert.equal((await fetch('http://127.0.0.1:8080/jobs')).status,401);
+  assert.equal((await get('/jobs/00000000-0000-0000-0000-000000000000/log')).status,404);
   assert.equal((await get('/jobs',{method:'POST',body:'{}'})).status,400);
   assert.equal((await get('/jobs',{method:'POST',body:'{'})).status,400);
   const create=await get('/jobs',{method:'POST',body:JSON.stringify({prompt:'Create a small shadcn PWA with an interactive counter.'})});
@@ -20,6 +23,7 @@ try {
   console.log('JOB ID:',id);
   assert.equal((await get('/jobs',{method:'POST',body:'{"prompt":"busy"}'})).status,409);
   assert.equal((await get(`/jobs/${id}/artifact`)).status,409);
+  const runningLog=await get(`/jobs/${id}/log`);assert.equal(runningLog.status,200);await runningLog.arrayBuffer();
   let job;
   for(let i=0;i<600;i++){job=await(await get(`/jobs/${id}`)).json();if(['completed','failed'].includes(job.status))break;await new Promise(r=>setTimeout(r,500));}
   assert.equal(job.status,'completed',job.logs);
@@ -31,11 +35,20 @@ try {
   assert.equal(envelope.statement.predicate.config.repo,'ekrembal/tinfoil-experiments');
   assert.equal(envelope.statement.predicate.model,'deepseek-v4-1-flash');
   const artifact=Buffer.from(await(await get(`/jobs/${id}/artifact`)).arrayBuffer());
+  assert.equal((await fetch(`http://127.0.0.1:8080/jobs/${id}/log`)).status,401);
+  const transcript=Buffer.from(await(await get(`/jobs/${id}/log`)).arrayBuffer());
+  assert.equal(sha256(transcript),envelope.statement.predicate.transcript.sha256);
+  assert.match(transcript.toString(),/"type":"agent_end"/);
+  assert.doesNotMatch(job.logs,/thinking_delta|"type":"agent_end"/);
   await mkdir('/evidence',{recursive:true});
+  await writeFile('/evidence/pi.jsonl',transcript);
   await writeFile('/evidence/statement.json',JSON.stringify(envelope,null,2));await writeFile('/evidence/artifact.tar.gz',artifact);await writeFile('/evidence/job.log',job.logs);
   await rm('/evidence/dist',{recursive:true,force:true});
   await tar.x({file:'/evidence/artifact.tar.gz',cwd:'/evidence'});
-  const chain=await verifyArtifact(envelope,'/evidence/artifact.tar.gz',{allowDev:true});
+  const chain=await verifyArtifact(envelope,'/evidence/artifact.tar.gz',{allowDev:true,log:'/evidence/pi.jsonl'});
+  await writeFile('/evidence/tampered-log.jsonl',Buffer.concat([transcript,Buffer.from('\n')]));
+  await assert.rejects(verifyArtifact(envelope,'/evidence/artifact.tar.gz',{allowDev:true,log:'/evidence/tampered-log.jsonl'}),/transcript sha256 mismatch/);
+  console.log('PASS: authenticated streamed log endpoint; raw transcript SHA-256 commitment; log tamper rejected; summaries omit raw events');
   assert.equal(chain[0].attestation_verification,null);
   console.log('RETURNED STATEMENT:',JSON.stringify(envelope,null,2));
   console.log('PASS: real Pi CLI streamed tool calls; offline pnpm install; shadcn PWA vite build');
@@ -48,4 +61,19 @@ try {
   const bad=structuredClone(envelope);bad.statement.predicate.prompt='forged';
   assert.equal((await get('/jobs',{method:'POST',body:JSON.stringify({prompt:'extend',parent_statement:bad})})).status,400);
   console.log('PASS: API rejects invalid parent signature before extending');
+  const workspace=await mkdtemp('/workspaces/output-test-');await prepareWorkspace(workspace);
+  try {
+    let summary='';const log=text=>{summary=(summary+text).slice(-4096);};
+    const source=`process.stdout.write(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'thinking_delta',delta:'x'.repeat(3*1024*1024)}})+'\\n');process.stdout.write(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'large log done'}]}})+'\\n'+JSON.stringify({type:'agent_end'})+'\\n');`;
+    const rawLogPath='/evidence/large-pi.jsonl';
+    const hash=await execute(workspace,'node',['-e',source],log,{}, {rawLogPath,timeoutMs:10000});
+    const raw=await readFile(rawLogPath);assert.ok(raw.length>3*1024*1024);assert.equal(hash,sha256(raw));assert.match(summary,/large log done/);assert.doesNotMatch(summary,/thinking_delta|xxxx/);
+    await assert.rejects(execute(workspace,'node',['-e',''],log,{}, {rawLogPath,timeoutMs:10000}),/no final assistant message/);
+    await assert.rejects(execute(workspace,'node',['-e',"process.stdout.write('not json')"],log,{}, {rawLogPath,timeoutMs:10000}),/invalid Pi event stream/);
+    await assert.rejects(execute(workspace,'node',['-e','process.exit(2)'],log,{}, {rawLogPath,timeoutMs:10000}),/process failed \(2\)/);
+    await assert.rejects(execute(workspace,'node',['-e',"process.stdout.write('{}\\n');setInterval(()=>{},1000)"],log,{}, {rawLogPath,timeoutMs:200}),/wall-clock timeout/);
+    assert.equal(await readFile(rawLogPath,'utf8'),'{}\n');
+    await assert.rejects(execute(workspace,'node',[],log,{}, {rawLogPath,timeoutMs:0}),/invalid process wall-clock timeout/);
+    console.log('PASS: >3 MiB raw event stream survives; bounded summaries; empty/malformed/nonzero exit rejected; timeout retains raw log');
+  }finally{await rm(workspace,{recursive:true,force:true});}
 }finally{child.kill('SIGTERM');mockAPI.close();}
