@@ -11,15 +11,14 @@ networks:
       - inference.tinfoil.sh
 containers:
   - name: harness
-    image: ghcr.io/ekrembal/attestai-enclave@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:0000000000000000000000000000000000000000000000000000000000000000
     keys: [job-signing]
     attestation: true
     networks: [inference]
     env:
       - HARNESS_IMAGE_DIGEST: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-      - CONFIG_REPO: "ekrembal/attestai-enclave"
-      - CONFIG_COMMIT: "0000000000000000000000000000000000000000"
-      - MODEL: "llama3-3-70b"
+      - CONFIG_REPO: "ekrembal/tinfoil-experiments"
+      - MODEL: "deepseek-v4-1-flash"
     secrets:
       - JOBS_BEARER_TOKEN
       - TINFOIL_API_KEY

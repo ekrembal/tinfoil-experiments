@@ -27,12 +27,16 @@ try {
   assert.match(job.logs,/agent: pi 1.5.0/);
   assert.match(job.logs,/PWA v1.0.0/);
   const envelope=await(await get(`/jobs/${id}/statement`)).json();
+  assert.equal('commit' in envelope.statement.predicate.config,false);
+  assert.equal(envelope.statement.predicate.config.repo,'ekrembal/tinfoil-experiments');
+  assert.equal(envelope.statement.predicate.model,'deepseek-v4-1-flash');
   const artifact=Buffer.from(await(await get(`/jobs/${id}/artifact`)).arrayBuffer());
   await mkdir('/evidence',{recursive:true});
   await writeFile('/evidence/statement.json',JSON.stringify(envelope,null,2));await writeFile('/evidence/artifact.tar.gz',artifact);await writeFile('/evidence/job.log',job.logs);
   await rm('/evidence/dist',{recursive:true,force:true});
   await tar.x({file:'/evidence/artifact.tar.gz',cwd:'/evidence'});
   const chain=await verifyArtifact(envelope,'/evidence/artifact.tar.gz',{allowDev:true});
+  assert.equal(chain[0].attestation_verification,null);
   console.log('RETURNED STATEMENT:',JSON.stringify(envelope,null,2));
   console.log('PASS: real Pi CLI streamed tool calls; offline pnpm install; shadcn PWA vite build');
   console.log('PASS: API auth, empty/invalid requests, busy, incomplete artifact');

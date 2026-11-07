@@ -11,6 +11,7 @@ test('signature and prompt chain verification, missing/forged parent and dev pol
   const wrap=(s,parent)=>({statement:s,...signature(s,key),attestation:{type:'dev/none'},...(parent?{parent}:{})});
   const parent=wrap(statement('first')),child=wrap(statement('second',parent),parent);
   assert.deepEqual((await verifyEnvelope(child,{allowDev:true})).map(x=>x.prompt),['first','second']);
+  assert.equal((await verifyEnvelope(child,{allowDev:true}))[0].attestation_verification,null);
   await assert.rejects(verifyEnvelope(child),/development attestation rejected/);
   const broken=structuredClone(child);broken.parent.statement.predicate.prompt='forged';
   await assert.rejects(verifyEnvelope(broken,{allowDev:true}),/parent hash mismatch/);
@@ -19,6 +20,11 @@ test('signature and prompt chain verification, missing/forged parent and dev pol
   const forged=structuredClone(parent);forged.statement.predicate.prompt='changed';
   await assert.rejects(verifyEnvelope(forged,{allowDev:true}),/invalid statement signature/);
   await assert.rejects(verifyEnvelope(wrap(statement(''),null)),/development attestation rejected/);
+  const production=statement('real');production.predicate.mode='tinfoil';production.predicate.config={repo:'expected/repo'};
+  const envelope={statement:production,...signature(production,key),attestation:{type:'tinfoil/v3',document:''}};
+  await assert.rejects(verifyEnvelope(envelope),/expected config repository required/);
+  await assert.rejects(verifyEnvelope(envelope,{repo:'wrong/repo'}),/expected config repository required/);
+  await assert.rejects(verifyEnvelope(envelope,{repo:'expected/repo'}));
 });
 test('CID and manifest normal, empty and symlink error cases',async()=>{
   const root=await mkdtemp(path.join(tmpdir(),'attestai-test-'));

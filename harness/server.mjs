@@ -8,7 +8,7 @@ import { attest,canonical,sha256,describeDist,signingKey,signature,verifyEnvelop
 
 const dev=process.env.DEV_MODE==='1', token=process.env.JOBS_BEARER_TOKEN;
 if(!token || token.length<16)throw new Error('JOBS_BEARER_TOKEN must be at least 16 characters');
-if(!dev && (!/^sha256:[0-9a-f]{64}$/.test(process.env.HARNESS_IMAGE_DIGEST||'') || !/^[0-9a-f]{40}$/.test(process.env.CONFIG_COMMIT||'') || !process.env.CONFIG_REPO))throw new Error('production requires image digest and config repo/commit');
+if(!dev && (!/^sha256:[0-9a-f]{64}$/.test(process.env.HARNESS_IMAGE_DIGEST||'') || !process.env.CONFIG_REPO))throw new Error('production requires image digest and expected config repository');
 const root=path.resolve(process.env.DATA_DIR||'/data'), key=await signingKey(dev),jobs=new Map();
 await mkdir(root,{recursive:true,mode:0o700});await chmod(root,0o700);
 // Workspace traversal requires execute, but private results and keys remain root-only.
@@ -24,7 +24,7 @@ async function run(job,prompt,parent) {
     await cp('/opt/app/templates/react',workspace,{recursive:true});
     await prepareWorkspace(workspace);
     await execute(workspace,'pnpm',['install','--offline','--frozen-lockfile','--ignore-scripts','--store-dir=/opt/store'],log);
-    const inference=await runAgent(workspace,prompt,process.env.MODEL||'llama3-3-70b',log,{dev,mockURL:process.env.MOCK_INFERENCE_URL});
+    const inference=await runAgent(workspace,prompt,process.env.MODEL||'deepseek-v4-1-flash',log,{dev,mockURL:process.env.MOCK_INFERENCE_URL});
     await prepareWorkspace(workspace);
     await execute(workspace,'pnpm',['build'],log);
     // Snapshot the build into root-owned results before hashing.
@@ -33,7 +33,7 @@ async function run(job,prompt,parent) {
     if(!description.manifest.length)throw new Error('empty build output');
     const archive=path.join(dir,'artifact.tar.gz');
     await tar.c({gzip:true,file:archive,cwd:dir,portable:true,mtime:new Date(0),noMtime:true},['dist']);
-    const statement={_type:'https://in-toto.io/Statement/v1',subject:[{name:'dist.tar.gz',digest:{sha256:sha256(await readFile(archive))}}],predicateType:'https://attestai.local/job/v1',predicate:{mode:dev?'dev':'tinfoil',harness_image_digest:process.env.HARNESS_IMAGE_DIGEST||'dev/unpinned',config:{repo:process.env.CONFIG_REPO||'ekrembal/attestai-enclave',commit:process.env.CONFIG_COMMIT||'dev/uncommitted'},model:process.env.MODEL||'llama3-3-70b',prompt,prompt_sha256:sha256(prompt),parent_statement_sha256:parent?sha256(canonical(parent.statement)):null,artifact:description,inference_verification:inference}};
+    const statement={_type:'https://in-toto.io/Statement/v1',subject:[{name:'dist.tar.gz',digest:{sha256:sha256(await readFile(archive))}}],predicateType:'https://attestai.local/job/v1',predicate:{mode:dev?'dev':'tinfoil',harness_image_digest:process.env.HARNESS_IMAGE_DIGEST||'dev/unpinned',config:{repo:process.env.CONFIG_REPO||'ekrembal/tinfoil-experiments'},model:process.env.MODEL||'deepseek-v4-1-flash',prompt,prompt_sha256:sha256(prompt),parent_statement_sha256:parent?sha256(canonical(parent.statement)):null,artifact:description,inference_verification:inference}};
     statement.predicate.agent=AGENT;
     const envelope={statement,...signature(statement,key),attestation:dev?{type:'dev/none'}:await attest(statement),...(parent?{parent}:{})};
     await writeFile(path.join(dir,'statement.json'),JSON.stringify(envelope,null,2));

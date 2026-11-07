@@ -4,6 +4,12 @@ import path from 'node:path';
 
 export const AGENT={name:'pi',package:'@earendil-works/pi-coding-agent',version:'1.5.0'};
 export const PROXY={name:'tinfoil-proxy',version:'0.2.9',host:'inference.tinfoil.sh',repo:'tinfoilsh/confidential-model-router'};
+export function assertAgentCompleted(output) {
+  const events=output.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
+  const end=events.findLast(event=>event.type==='agent_end');
+  const last=end?.messages?.findLast(message=>message.role==='assistant');
+  if(!last || last.stopReason!=='stop')throw new Error(last?.errorMessage||`agent did not complete (${last?.stopReason||'no final assistant message'})`);
+}
 export function execute(workspace,program,args,log=()=>{},extraEnv={}) {
   return new Promise((resolve,reject)=>{
     const child=spawn(program,args,{cwd:workspace,uid:1001,gid:1001,env:{PATH:'/opt/app/node_modules/.bin:/usr/local/bin:/usr/bin:/bin',HOME:workspace,TMPDIR:path.join(workspace,'.tmp'),CI:'true',PI_OFFLINE:'1',COREPACK_ENABLE_NETWORK:'0',npm_config_offline:'true',npm_config_store_dir:'/opt/store',XDG_CACHE_HOME:path.join(workspace,'.cache'),...extraEnv},stdio:['ignore','pipe','pipe'],detached:true});
@@ -23,10 +29,11 @@ export async function prepareWorkspace(workspace) {
 export async function runAgent(workspace,prompt,model,log,{dev=false,mockURL}={}) {
   if(mockURL&&!dev)throw new Error('mock inference is development only');
   const configDir=path.join(workspace,'.pi-agent');await mkdir(configDir,{recursive:true});
-  await writeFile(path.join(configDir,'models.json'),JSON.stringify({providers:{tinfoil:{baseUrl:(mockURL||'http://127.0.0.1:3301')+'/v1',api:'openai-completions',apiKey:'TINFOIL_API_KEY',authHeader:true,compat:{supportsDeveloperRole:false,supportsReasoningEffort:false},models:[{id:model,name:model,reasoning:false,input:['text'],contextWindow:128000,maxTokens:16384}]}}}));
+  await writeFile(path.join(configDir,'models.json'),JSON.stringify({providers:{tinfoil:{baseUrl:(mockURL||'http://127.0.0.1:3301')+'/v1',api:'openai-completions',apiKey:'$TINFOIL_API_KEY',authHeader:true,compat:{supportsDeveloperRole:false,supportsReasoningEffort:false},models:[{id:model,name:model,reasoning:false,input:['text'],contextWindow:128000,maxTokens:16384}]}}}));
   await prepareWorkspace(workspace);
   log(`agent: ${AGENT.name} ${AGENT.version}\n`);
-  await execute(workspace,'/opt/app/node_modules/.bin/pi',['-p','--mode','json','--no-session','--no-extensions','--no-skills','--no-prompt-templates','--no-themes','--no-context-files','--provider','tinfoil','--model',model,'--tools','read,bash,edit,write,ls','--append-system-prompt','Build in the current offline Vite React TypeScript Tailwind shadcn PWA starter. Do not add dependencies or use the network. Use pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir=/opt/store and pnpm build. Modify only workspace source files. All dependencies are already baked in. Complete the requested changes, then stop.',prompt],log,{PI_CODING_AGENT_DIR:configDir,TINFOIL_API_KEY:dev?'dev-mock':process.env.TINFOIL_API_KEY});
+  const output=await execute(workspace,'/opt/app/node_modules/.bin/pi',['-p','--mode','json','--no-session','--no-extensions','--no-skills','--no-prompt-templates','--no-themes','--no-context-files','--provider','tinfoil','--model',model,'--tools','read,bash,edit,write,ls','--append-system-prompt','Build in the current offline Vite React TypeScript Tailwind shadcn PWA starter. Do not add dependencies or use the network. Use pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir=/opt/store and pnpm build. Modify only workspace source files. All dependencies are already baked in. Complete the requested changes, then stop.',prompt],log,{PI_CODING_AGENT_DIR:configDir,TINFOIL_API_KEY:mockURL?'dev-mock':process.env.TINFOIL_API_KEY});
+  assertAgentCompleted(output);
   if(mockURL)return {mode:'dev/mock',proxy:PROXY};
   const response=await fetch('http://127.0.0.1:3301/verification-document',{signal:AbortSignal.timeout(10000)});
   if(!response.ok)throw new Error('proxy verification document unavailable');

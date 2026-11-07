@@ -63,6 +63,7 @@ export async function verifyEnvelope(envelope,{allowDev=false,repo,depth=0}={}) 
   const key=createPublicKey(public_key);
   if (key.asymmetricKeyType!=='ed25519' || !verify(null,Buffer.from(canonical(statement)),key,Buffer.from(sig,'base64'))) throw new Error('invalid statement signature');
   const p=statement.predicate;
+  let attestationVerification=null;
   if (sha256(p.prompt)!==p.prompt_sha256) throw new Error('prompt digest mismatch');
   if (attestation.type==='dev/none') {
     if (!allowDev || p.mode!=='dev') throw new Error('development attestation rejected (use --allow-dev explicitly)');
@@ -72,11 +73,12 @@ export async function verifyEnvelope(envelope,{allowDev=false,repo,depth=0}={}) 
     const v=await Verifier.create();
     const result=await v.verifyV3(Buffer.from(attestation.document,'base64'),Buffer.from(sha256(canonical(statement)),'hex'),repo);
     if (result.cryptoMaterialData('job-signing',KEY_SPKI_V1_FORMAT)!==key.export({format:'der',type:'spki'}).toString('hex')) throw new Error('signing key not endorsed');
+    attestationVerification=result.toJSON();
   }
   let chain=[];
   if (parent) {
     if (p.parent_statement_sha256!==sha256(canonical(parent.statement))) throw new Error('parent hash mismatch');
     chain=await verifyEnvelope(parent,{allowDev,repo,depth:depth+1});
   } else if (p.parent_statement_sha256!==null) throw new Error('missing parent statement');
-  return [...chain,{prompt:p.prompt,model:p.model,statement_sha256:sha256(canonical(statement))}];
+  return [...chain,{prompt:p.prompt,model:p.model,statement_sha256:sha256(canonical(statement)),attestation_verification:attestationVerification}];
 }
