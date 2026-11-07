@@ -18,13 +18,15 @@ containers:
     networks: [internal]
     tmpfs:
       /tmp: "rw,noexec,size=4096"
-      /data: "rw,noexec,size=1m"
-      /workspaces: "rw,noexec,size=1m"
+      /data: "rw,noexec"
+      /workspaces: "rw,noexec"
       /root: "rw,noexec,size=4096"
     env:
       - HARNESS_IMAGE_DIGEST: "sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585"
       - CONFIG_REPO: "ekrembal/tinfoil-experiments"
       - APP_PROFILE: "online"
+      - MAX_ARCHIVE_BYTES: "67108864"
+      - MAX_JOB_BODY_BYTES: "94371840"
       - MODEL: "deepseek-v4-1-flash"
       - JOB_TIMEOUT_SECONDS: "900"
       - HOME: "/root"
@@ -38,11 +40,13 @@ containers:
     networks: [internet, internal]
     tmpfs:
       /tmp: "rw,noexec,size=4096"
-      /data: "rw,noexec,size=1m"
+      /data: "rw,noexec"
       /workspaces: "rw,exec"
       /root: "rw,noexec,size=4096"
     env:
       - APP_PROFILE: "online"
+      - MAX_ARCHIVE_BYTES: "67108864"
+      - MAX_JOB_BODY_BYTES: "94371840"
       - MODEL: "deepseek-v4-1-flash"
       - JOB_TIMEOUT_SECONDS: "900"
       - HOME: "/root"

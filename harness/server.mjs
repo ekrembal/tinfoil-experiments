@@ -9,9 +9,12 @@ import * as tar from 'tar';
 import { AGENT } from './runner.mjs';
 import { attest,attestationMode,canonical,sha256,sha256File,describeDist,signingKey,signature,verifyEnvelope } from './provenance.mjs';
 import { buildProfile } from './profile.mjs';
+import { archivePolicy,byteLimit,decodeSource,validateArchive } from './archive.mjs';
+import { validateApp } from './app-contract.mjs';
 
 const dev=process.env.DEV_MODE==='1', token=process.env.JOBS_BEARER_TOKEN;
 const profile=buildProfile(process.env.APP_PROFILE??(dev?'offline':undefined));
+const policy=archivePolicy();
 if(process.env.TINFOIL_API_KEY)throw new Error('signer must not receive the inference key');
 const workerURL=new URL(process.env.WORKER_URL||'http://worker:8081');
 const bindAddress=process.env.SIGNER_BIND_ADDRESS||'0.0.0.0';
@@ -26,7 +29,7 @@ await mkdir(root,{recursive:true,mode:0o700});await chmod(root,0o700);
 const workRoot='/workspaces';await mkdir(workRoot,{recursive:true});await chmod(workRoot,0o711);
 let busy=false;
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(value));}
-async function run(job,prompt,parent) {
+async function run(job,prompt,parent,parentSource) {
   busy=true;job.status='running';
   const dir=path.join(root,job.id);
   const rawLogPath=path.join(workRoot,`${job.id}.pi.jsonl`),deadline=Date.now()+timeoutMs;
@@ -39,7 +42,7 @@ async function run(job,prompt,parent) {
       const response=await fetch(new URL(route,workerURL),{...options,signal:AbortSignal.timeout(remaining),redirect:'error'});
       if(!response.ok)throw new Error(`worker HTTP ${response.status}`);return response;
     };
-    const created=await(await request('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,profile:profile.profile})})).json();
+    const created=await(await request('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,profile:profile.profile,...(parentSource?{parent_source:parentSource.toString('base64')}:{})})})).json();
     if(!/^[0-9a-f-]{36}$/.test(created.id))throw new Error('invalid worker job ID');
     const route=`/jobs/${created.id}`;
     let result;
@@ -55,7 +58,14 @@ async function run(job,prompt,parent) {
     if(canonical(result.metadata?.agent)!==canonical(AGENT)||result.metadata.model!==(process.env.MODEL||'deepseek-v4-1-flash'))throw new Error('unexpected worker agent or model');
     if(result.metadata.profile!==profile.profile||canonical(result.metadata.worker_egress)!==canonical(profile.worker_egress))throw new Error('worker profile mismatch');
     const archive=path.join(dir,'artifact.tar.gz');
-    await pipeline(Readable.fromWeb((await request(`${route}/artifact`)).body),createWriteStream(archive,{mode:0o600}));
+    await pipeline(Readable.fromWeb((await request(`${route}/artifact`)).body),...(profile.profile==='online'?[byteLimit(policy.maxArchiveBytes)]:[]),createWriteStream(archive,{mode:0o600}));
+    let source;
+    if(profile.profile==='online'){
+      const file=path.join(dir,'source.tar.gz');
+      await pipeline(Readable.fromWeb((await request(`${route}/source`)).body),byteLimit(policy.maxArchiveBytes),createWriteStream(file,{mode:0o600}));
+      await validateArchive(file,{source:true,maxBytes:policy.maxArchiveBytes});source={sha256:await sha256File(file)};
+      await validateArchive(archive,{maxBytes:policy.maxArchiveBytes});
+    }
     let unsafe=false;
     await tar.t({file:archive,strict:true,filter:(name,entry)=>{
       if(!['File','Directory'].includes(entry.type)||name.startsWith('/')||name.split('/').includes('..')||!(name==='dist'||name.startsWith('dist/')))unsafe=true;
@@ -64,6 +74,7 @@ async function run(job,prompt,parent) {
     if(unsafe)throw new Error('unsafe archive entry');
     await tar.x({file:archive,cwd:dir,strict:true,preservePaths:true,noChown:true});
     const dist=path.join(dir,'dist');
+    if(profile.profile==='online')await validateApp(dist);
     const description=await describeDist(dist);
     if(!description.manifest.length)throw new Error('empty build output');
     const transcript_sha256=await sha256File(rawLogPath);
@@ -72,6 +83,7 @@ async function run(job,prompt,parent) {
     statement.predicate.transcript={name:'pi.jsonl',sha256:transcript_sha256};
     statement.predicate.attestation_mode=attestation_mode;
     Object.assign(statement.predicate,profile);
+    if(source){statement.predicate.source=source;statement.predicate.network={signer:'closed',worker:'open'};}
     const attestation=attestation_mode==='dev'?{type:'dev/none'}:attestation_mode==='attested-key'?{type:'tinfoil/attested-key'}:await attest(statement);
     const envelope={statement,...signature(statement,key),attestation,...(parent?{parent}:{})};
     await writeFile(path.join(dir,'statement.json'),JSON.stringify(envelope,null,2));
@@ -84,18 +96,27 @@ const server=http.createServer(async(req,res)=>{
     if(got.length!==expected.length||!timingSafeEqual(got,expected))return json(res,401,{error:'unauthorized'});
     if(req.method==='POST' && req.url==='/jobs') {
       if(busy)return json(res,409,{error:'one job at a time'});
-      let data='';for await(const chunk of req){data+=chunk;if(data.length>2*1024*1024)return json(res,413,{error:'request too large'});}
+      let size=0;const chunks=[];for await(const chunk of req.iterator({destroyOnReturn:false})){size+=chunk.length;if(size>policy.maxBodyBytes){req.resume();return json(res,413,{error:'request too large'});}chunks.push(chunk);}const data=Buffer.concat(chunks).toString('utf8');
       let body;try{body=JSON.parse(data);}catch{return json(res,400,{error:'invalid JSON'});}
       if(typeof body.prompt!=='string'||!body.prompt.trim()||body.prompt.length>64000)return json(res,400,{error:'nonempty prompt (max 64000 characters) required'});
       if(body.parent_statement) {
         try {await verifyEnvelope(body.parent_statement,{allowDev:dev,repo:process.env.CONFIG_REPO});}catch(error){return json(res,400,{error:`invalid parent: ${error.message}`});}
       }
+      let parentSource;
+      if(body.parent_source!==undefined){
+        if(profile.profile!=='online'||!body.parent_statement)return json(res,400,{error:'parent_source requires an online job and verified parent_statement'});
+        try{
+          parentSource=decodeSource(body.parent_source,policy.maxArchiveBytes);
+          if(sha256(parentSource)!==body.parent_statement.statement.predicate.source?.sha256)throw new Error('parent source sha256 mismatch');
+          await validateArchive(parentSource,{source:true,maxBytes:policy.maxArchiveBytes});
+        }catch(error){return json(res,400,{error:error.message});}
+      }
       if(busy)return json(res,409,{error:'one job at a time'});
       const job={id:randomUUID(),status:'queued',logs:''};jobs.set(job.id,job);
-      void run(job,body.prompt,body.parent_statement);
+      void run(job,body.prompt,body.parent_statement,parentSource);
       return json(res,202,{id:job.id});
     }
-    const match=/^\/jobs\/([0-9a-f-]{36})(?:\/(artifact|statement|log))?$/.exec(req.url);
+    const match=/^\/jobs\/([0-9a-f-]{36})(?:\/(artifact|statement|log|source))?$/.exec(req.url);
     if(req.method!=='GET'||!match||!jobs.has(match[1]))return json(res,404,{error:'not found'});
     const job=jobs.get(match[1]);
     if(!match[2])return json(res,200,job);
@@ -107,9 +128,10 @@ const server=http.createServer(async(req,res)=>{
       await pipeline(stream,res);return;
     }
     if(job.status!=='completed')return json(res,409,{error:'job not completed'});
+    if(match[2]==='source'&&profile.profile!=='online')return json(res,409,{error:'source not available'});
     const artifact=match[2]==='artifact';
-    res.writeHead(200,{'Content-Type':artifact?'application/gzip':'application/json'});
-    res.end(await readFile(path.join(root,job.id,artifact?'artifact.tar.gz':'statement.json')));
+    res.writeHead(200,{'Content-Type':artifact||match[2]==='source'?'application/gzip':'application/json'});
+    res.end(await readFile(path.join(root,job.id,artifact?'artifact.tar.gz':match[2]==='source'?'source.tar.gz':'statement.json')));
   }catch(error){if(res.headersSent){res.destroy(error);return;}json(res,500,{error:error.message});}
 });
 server.requestTimeout=30000;

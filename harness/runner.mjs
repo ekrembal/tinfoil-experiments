@@ -12,7 +12,7 @@ export async function execute(workspace,program,args,log=()=>{},extraEnv={}, {ra
   const raw=rawLogPath?await open(rawLogPath,'w',0o600):null;
   const hash=createHash('sha256'),events=raw?piTranscript(log):null;
   const {profile}=buildProfile(process.env.APP_PROFILE??'offline');
-  const installEnv=profile==='offline'?{PI_OFFLINE:'1',COREPACK_ENABLE_NETWORK:'0',npm_config_offline:'true',npm_config_store_dir:'/opt/store'}:{COREPACK_ENABLE_NETWORK:'1',npm_config_store_dir:path.join(workspace,'.pnpm-store')};
+  const installEnv=profile==='offline'?{PI_OFFLINE:'1',COREPACK_ENABLE_NETWORK:'0',npm_config_offline:'true',npm_config_store_dir:'/opt/store'}:{COREPACK_ENABLE_NETWORK:'1'};
   const child=spawn(program,args,{cwd:workspace,env:{PATH:'/opt/app/node_modules/.bin:/usr/local/bin:/usr/bin:/bin',HOME:workspace,TMPDIR:path.join(workspace,'.tmp'),CI:'true',...installEnv,XDG_CACHE_HOME:path.join(workspace,'.cache'),...extraEnv},stdio:['ignore','pipe','pipe'],detached:true});
   let tail='',timedOut=false;
   const kill=()=>{try{process.kill(-child.pid,'SIGKILL');}catch{}};
@@ -42,8 +42,8 @@ export async function runAgent(workspace,prompt,model,log,{dev=false,mockURL,raw
   await prepareWorkspace(workspace);
   log(`agent: ${AGENT.name} ${AGENT.version}\n`);
   const {profile}=buildProfile(process.env.APP_PROFILE??'offline');
-  const instructions=profile==='offline'?'Build in the current offline Vite React TypeScript Tailwind shadcn PWA starter. Do not add dependencies or use the network. Use pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir=/opt/store and pnpm build. Modify only workspace source files. All dependencies are already baked in. Complete the requested changes, then stop.':`Build in the current Vite React TypeScript Tailwind shadcn PWA starter. Internet access is available. You may install dependencies with npm or pnpm and update package.json and the lockfile. Use pnpm with its writable store at ${path.join(workspace,'.pnpm-store')}. Run pnpm build. Complete the requested changes, then stop.`;
-  const transcript_sha256=await execute(workspace,'/opt/app/node_modules/.bin/pi',['-p','--mode','json','--no-session','--no-extensions','--no-skills','--no-prompt-templates','--no-themes','--no-context-files','--provider','tinfoil','--model',model,'--tools','read,bash,edit,write,ls','--append-system-prompt',instructions,prompt],log,{PI_CODING_AGENT_DIR:configDir,TINFOIL_API_KEY:mockURL?'dev-mock':process.env.TINFOIL_API_KEY},{rawLogPath,timeoutMs});
+  const instructions=profile==='offline'?['--append-system-prompt','Build in the current offline Vite React TypeScript Tailwind shadcn PWA starter. Do not add dependencies or use the network. Use pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir=/opt/store and pnpm build. Modify only workspace source files. All dependencies are already baked in. Complete the requested changes, then stop.']:[];
+  const transcript_sha256=await execute(workspace,'/opt/app/node_modules/.bin/pi',['-p','--mode','json','--no-session','--no-extensions','--no-skills','--no-prompt-templates','--no-themes','--no-context-files','--provider','tinfoil','--model',model,'--tools','read,bash,edit,write,ls',...instructions,prompt],log,{PI_CODING_AGENT_DIR:configDir,TINFOIL_API_KEY:mockURL?'dev-mock':process.env.TINFOIL_API_KEY},{rawLogPath,timeoutMs});
   if(mockURL)return {mode:'dev/mock',proxy:PROXY,transcript_sha256};
   const response=await fetch('http://127.0.0.1:3301/verification-document',{signal:AbortSignal.timeout(10000)});
   if(!response.ok)throw new Error('proxy verification document unavailable');
