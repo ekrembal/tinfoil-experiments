@@ -7,10 +7,8 @@ attested-keys:
 networks:
   internal:
     egress: closed
-  inference:
-    egress: allowlist
-    allow:
-      - inference.tinfoil.sh
+  internet:
+    egress: open
 containers:
   - name: signer
     image: ghcr.io/ekrembal/tinfoil-experiments@sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585
@@ -26,7 +24,7 @@ containers:
     env:
       - HARNESS_IMAGE_DIGEST: "sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585"
       - CONFIG_REPO: "ekrembal/tinfoil-experiments"
-      - APP_PROFILE: "offline"
+      - APP_PROFILE: "online"
       - MODEL: "deepseek-v4-1-flash"
       - JOB_TIMEOUT_SECONDS: "900"
       - HOME: "/root"
@@ -37,14 +35,14 @@ containers:
   - name: worker
     image: ghcr.io/ekrembal/tinfoil-experiments@sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585
     command: ["node", "harness/worker-start.mjs"]
-    networks: [inference, internal]
+    networks: [internet, internal]
     tmpfs:
       /tmp: "rw,noexec,size=4096"
       /data: "rw,noexec,size=1m"
-      /workspaces: "rw,exec,size=212m"
+      /workspaces: "rw,exec"
       /root: "rw,noexec,size=4096"
     env:
-      - APP_PROFILE: "offline"
+      - APP_PROFILE: "online"
       - MODEL: "deepseek-v4-1-flash"
       - JOB_TIMEOUT_SECONDS: "900"
       - HOME: "/root"
