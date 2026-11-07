@@ -1,47 +1,68 @@
 import http from 'node:http';
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
-import { mkdir, cp, writeFile, readFile, chmod } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import * as tar from 'tar';
-import { runAgent,execute,prepareWorkspace,AGENT } from './runner.mjs';
-import { attest,canonical,sha256,describeDist,signingKey,signature,verifyEnvelope } from './provenance.mjs';
+import { AGENT } from './runner.mjs';
+import { attest,canonical,sha256,sha256File,describeDist,signingKey,signature,verifyEnvelope } from './provenance.mjs';
 
 const dev=process.env.DEV_MODE==='1', token=process.env.JOBS_BEARER_TOKEN;
+if(process.env.TINFOIL_API_KEY)throw new Error('signer must not receive the inference key');
+const workerURL=new URL(process.env.WORKER_URL||'http://worker:8081');
+const bindAddress=process.env.SIGNER_BIND_ADDRESS||'0.0.0.0';
+if(!dev&&!process.env.SIGNER_BIND_ADDRESS)throw new Error('production signer requires a shim-only bind address');
 const timeoutMs=Number(process.env.JOB_TIMEOUT_SECONDS||'900')*1000;
 if(!Number.isSafeInteger(timeoutMs)||timeoutMs<=0||timeoutMs>2147483647)throw new Error('JOB_TIMEOUT_SECONDS must be a positive supported wall-clock timeout');
 if(!token || token.length<16)throw new Error('JOBS_BEARER_TOKEN must be at least 16 characters');
 if(!dev && (!/^sha256:[0-9a-f]{64}$/.test(process.env.HARNESS_IMAGE_DIGEST||'') || !process.env.CONFIG_REPO))throw new Error('production requires image digest and expected config repository');
 const root=path.resolve(process.env.DATA_DIR||'/data'), key=await signingKey(dev),jobs=new Map();
 await mkdir(root,{recursive:true,mode:0o700});await chmod(root,0o700);
-// Workspace traversal requires execute, but private results and keys remain root-only.
 const workRoot='/workspaces';await mkdir(workRoot,{recursive:true});await chmod(workRoot,0o711);
 let busy=false;
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(value));}
 async function run(job,prompt,parent) {
   busy=true;job.status='running';
-  const dir=path.join(root,job.id),workspace=path.join(workRoot,job.id);
+  const dir=path.join(root,job.id);
   const rawLogPath=path.join(workRoot,`${job.id}.pi.jsonl`),deadline=Date.now()+timeoutMs;
   const log=s=>{job.logs=(job.logs+s).slice(-1024*1024);console.log(`[${job.id}] ${s.trimEnd()}`);};
   try {
     await mkdir(dir,{recursive:true,mode:0o700});
     await writeFile(rawLogPath,'',{mode:0o600});
-    await cp('/opt/app/templates/react',workspace,{recursive:true});
-    await prepareWorkspace(workspace);
-    await execute(workspace,'pnpm',['install','--offline','--frozen-lockfile','--ignore-scripts','--store-dir=/opt/store'],log,{}, {timeoutMs:deadline-Date.now()});
-    const inference=await runAgent(workspace,prompt,process.env.MODEL||'deepseek-v4-1-flash',log,{dev,mockURL:process.env.MOCK_INFERENCE_URL,rawLogPath,timeoutMs:deadline-Date.now()});
-    await prepareWorkspace(workspace);
-    await execute(workspace,'pnpm',['build'],log,{}, {timeoutMs:deadline-Date.now()});
-    // Snapshot the build into root-owned results before hashing.
-    const dist=path.join(dir,'dist');await cp(path.join(workspace,'dist'),dist,{recursive:true,dereference:false});
+    const request=async(route,options={})=>{
+      const remaining=deadline-Date.now();if(remaining<=0)throw new Error('job wall-clock timeout');
+      const response=await fetch(new URL(route,workerURL),{...options,signal:AbortSignal.timeout(remaining),redirect:'error'});
+      if(!response.ok)throw new Error(`worker HTTP ${response.status}`);return response;
+    };
+    const created=await(await request('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})})).json();
+    if(!/^[0-9a-f-]{36}$/.test(created.id))throw new Error('invalid worker job ID');
+    const route=`/jobs/${created.id}`;
+    let result;
+    for(;;){
+      result=await(await request(route)).json();
+      if(!['queued','running','completed','failed'].includes(result.status)||typeof result.logs!=='string')throw new Error('invalid worker status');
+      job.logs=result.logs.slice(-1024*1024);
+      if(['completed','failed'].includes(result.status))break;
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+    await pipeline(Readable.fromWeb((await request(`${route}/log`)).body),createWriteStream(rawLogPath,{mode:0o600}));
+    if(result.status==='failed')throw new Error('worker job failed');
+    if(canonical(result.metadata?.agent)!==canonical(AGENT)||result.metadata.model!==(process.env.MODEL||'deepseek-v4-1-flash'))throw new Error('unexpected worker agent or model');
+    const archive=path.join(dir,'artifact.tar.gz');
+    await pipeline(Readable.fromWeb((await request(`${route}/artifact`)).body),createWriteStream(archive,{mode:0o600}));
+    await tar.x({file:archive,cwd:dir,strict:true,preservePaths:true,noChown:true,filter:(name,entry)=>{
+      if(!['File','Directory'].includes(entry.type)||name.startsWith('/')||name.split('/').includes('..')||!(name==='dist'||name.startsWith('dist/')))throw new Error('unsafe archive entry');
+      return true;
+    }});
+    const dist=path.join(dir,'dist');
     const description=await describeDist(dist);
     if(!description.manifest.length)throw new Error('empty build output');
-    const archive=path.join(dir,'artifact.tar.gz');
-    await tar.c({gzip:true,file:archive,cwd:dir,portable:true,mtime:new Date(0),noMtime:true},['dist']);
-    const statement={_type:'https://in-toto.io/Statement/v1',subject:[{name:'dist.tar.gz',digest:{sha256:sha256(await readFile(archive))}}],predicateType:'https://attestai.local/job/v1',predicate:{mode:dev?'dev':'tinfoil',harness_image_digest:process.env.HARNESS_IMAGE_DIGEST||'dev/unpinned',config:{repo:process.env.CONFIG_REPO||'ekrembal/tinfoil-experiments'},model:process.env.MODEL||'deepseek-v4-1-flash',prompt,prompt_sha256:sha256(prompt),parent_statement_sha256:parent?sha256(canonical(parent.statement)):null,artifact:description,inference_verification:inference}};
+    const transcript_sha256=await sha256File(rawLogPath);
+    const statement={_type:'https://in-toto.io/Statement/v1',subject:[{name:'dist.tar.gz',digest:{sha256:await sha256File(archive)}}],predicateType:'https://attestai.local/job/v1',predicate:{mode:dev?'dev':'tinfoil',harness_image_digest:process.env.HARNESS_IMAGE_DIGEST||'dev/unpinned',config:{repo:process.env.CONFIG_REPO||'ekrembal/tinfoil-experiments'},model:process.env.MODEL||'deepseek-v4-1-flash',prompt,prompt_sha256:sha256(prompt),parent_statement_sha256:parent?sha256(canonical(parent.statement)):null,artifact:description,inference_verification:{...result.metadata.inference_verification,transcript_sha256}}};
     statement.predicate.agent=AGENT;
-    statement.predicate.transcript={name:'pi.jsonl',sha256:inference.transcript_sha256};
+    statement.predicate.transcript={name:'pi.jsonl',sha256:transcript_sha256};
     const envelope={statement,...signature(statement,key),attestation:dev?{type:'dev/none'}:await attest(statement),...(parent?{parent}:{})};
     await writeFile(path.join(dir,'statement.json'),JSON.stringify(envelope,null,2));
     job.status='completed';log('job completed\n');
@@ -82,4 +103,4 @@ const server=http.createServer(async(req,res)=>{
   }catch(error){if(res.headersSent){res.destroy(error);return;}json(res,500,{error:error.message});}
 });
 server.requestTimeout=30000;
-server.listen(Number(process.env.PORT||8080),'0.0.0.0',()=>console.log('attestai harness listening on 8080'));
+server.listen(Number(process.env.PORT||8080),bindAddress,()=>console.log('attestai harness listening on 8080'));

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, readdir, chown, writeFile, open } from 'node:fs/promises';
+import { mkdir, writeFile, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { piTranscript,tailText } from './transcript.mjs';
 import path from 'node:path';
@@ -10,7 +10,7 @@ export async function execute(workspace,program,args,log=()=>{},extraEnv={}, {ra
   if(!Number.isSafeInteger(timeoutMs)||timeoutMs<=0||timeoutMs>2147483647)throw new Error('invalid process wall-clock timeout');
   const raw=rawLogPath?await open(rawLogPath,'w',0o600):null;
   const hash=createHash('sha256'),events=raw?piTranscript(log):null;
-  const child=spawn(program,args,{cwd:workspace,uid:1001,gid:1001,env:{PATH:'/opt/app/node_modules/.bin:/usr/local/bin:/usr/bin:/bin',HOME:workspace,TMPDIR:path.join(workspace,'.tmp'),CI:'true',PI_OFFLINE:'1',COREPACK_ENABLE_NETWORK:'0',npm_config_offline:'true',npm_config_store_dir:'/opt/store',XDG_CACHE_HOME:path.join(workspace,'.cache'),...extraEnv},stdio:['ignore','pipe','pipe'],detached:true});
+  const child=spawn(program,args,{cwd:workspace,env:{PATH:'/opt/app/node_modules/.bin:/usr/local/bin:/usr/bin:/bin',HOME:workspace,TMPDIR:path.join(workspace,'.tmp'),CI:'true',PI_OFFLINE:'1',COREPACK_ENABLE_NETWORK:'0',npm_config_offline:'true',npm_config_store_dir:'/opt/store',XDG_CACHE_HOME:path.join(workspace,'.cache'),...extraEnv},stdio:['ignore','pipe','pipe'],detached:true});
   let tail='',timedOut=false;
   const kill=()=>{try{process.kill(-child.pid,'SIGKILL');}catch{}};
   const timer=setTimeout(()=>{timedOut=true;kill();},timeoutMs);
@@ -31,8 +31,6 @@ export async function execute(workspace,program,args,log=()=>{},extraEnv={}, {ra
 }
 export async function prepareWorkspace(workspace) {
   await mkdir(path.join(workspace,'.tmp'),{recursive:true});
-  async function own(dir){await chown(dir,1001,1001);for(const entry of await readdir(dir,{withFileTypes:true})){const file=path.join(dir,entry.name);if(entry.isDirectory())await own(file);else if(!entry.isSymbolicLink())await chown(file,1001,1001);}}
-  await own(workspace);
 }
 export async function runAgent(workspace,prompt,model,log,{dev=false,mockURL,rawLogPath,timeoutMs}={}) {
   if(mockURL&&!dev)throw new Error('mock inference is development only');
