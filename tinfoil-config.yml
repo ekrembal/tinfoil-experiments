@@ -1,9 +1,6 @@
 cvm-version: "0.14.10"
 cpus: 2
 memory: 8192
-attested-keys:
-  - id: job-signing
-    key: ed25519
 networks:
   internal:
     egress: closed
@@ -15,7 +12,6 @@ containers:
   - name: signer
     image: ghcr.io/ekrembal/tinfoil-experiments@sha256:1a4961d1533f578639eafffd672444bd91c0869c98898b3ecb5cdbca68cb7031
     command: ["node", "harness/start.mjs"]
-    keys: [job-signing]
     networks: [internal]
     tmpfs:
       /tmp: "rw,noexec,size=4096"
@@ -23,6 +19,7 @@ containers:
       /workspaces: "rw,noexec,size=1m"
       /root: "rw,noexec,size=4096"
     env:
+      - DEV_MODE: "1"
       - HARNESS_IMAGE_DIGEST: "sha256:1a4961d1533f578639eafffd672444bd91c0869c98898b3ecb5cdbca68cb7031"
       - CONFIG_REPO: "ekrembal/tinfoil-experiments"
       - MODEL: "deepseek-v4-1-flash"
