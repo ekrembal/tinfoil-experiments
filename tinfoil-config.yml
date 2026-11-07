@@ -13,7 +13,7 @@ networks:
       - inference.tinfoil.sh
 containers:
   - name: signer
-    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:32db1369fbb1c3e195aa02b5f5c77d51c2254acb6871a0b42ff2f21b6b38e555
+    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585
     command: ["node", "harness/start.mjs"]
     keys: [job-signing]
     attestation: true
@@ -24,7 +24,7 @@ containers:
       /workspaces: "rw,noexec,size=1m"
       /root: "rw,noexec,size=4096"
     env:
-      - HARNESS_IMAGE_DIGEST: "sha256:32db1369fbb1c3e195aa02b5f5c77d51c2254acb6871a0b42ff2f21b6b38e555"
+      - HARNESS_IMAGE_DIGEST: "sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585"
       - CONFIG_REPO: "ekrembal/tinfoil-experiments"
       - APP_PROFILE: "offline"
       - MODEL: "deepseek-v4-1-flash"
@@ -35,7 +35,7 @@ containers:
     secrets:
       - JOBS_BEARER_TOKEN
   - name: worker
-    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:32db1369fbb1c3e195aa02b5f5c77d51c2254acb6871a0b42ff2f21b6b38e555
+    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585
     command: ["node", "harness/worker-start.mjs"]
     networks: [inference, internal]
     tmpfs:
