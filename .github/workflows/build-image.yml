@@ -6,7 +6,7 @@ on:
   push:
     branches: [devin/attested-harness]
     paths:
-      - .github/workflows/build-image.yml
+      - ".github/workflows/build-image.yml"
       - harness/**
       - templates/**
       - verifier/**
