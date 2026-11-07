@@ -1,18 +1,41 @@
 # tinfoil-experiments: attestai enclave
 
-> **Research code, not for production.** Local development signatures are NOT hardware attestations. Agent-generated code is untrusted. No enclave deployment is claimed by this repository.
+> **Research code, not for production.** Local development signatures are NOT hardware attestations. Agent-generated code is untrusted.
 
 Source: [ekrembal/tinfoil-experiments](https://github.com/ekrembal/tinfoil-experiments).
 
 A thin, offline build service for a **real Pi coding-agent CLI**, inside a Tinfoil Container. Inspired by the prompt/provenance chain in [ekrembal/attestai](https://github.com/ekrembal/attestai): verify the entire parent chain before extending it, retain exact prompts and hashes, and authenticate the resulting artifact. This is a new implementation, not a copy of that project's GPL workflow.
 
 ```
-POST /jobs → copy offline starter → pnpm install --offline → pi -p → vite build
-                                                       ↓
-                            localhost:3301 → official Tinfoil Proxy → attested inference
-dist/ → deterministic tar.gz + file manifest + UnixFS CIDv1 → Ed25519 signature
-                                                           + nonce-bound V3 attestation
+client ──verified TLS──▶ shim /jobs ──▶ signer (job-signing key, attestation socket, egress closed)
+                                          │  internal network (closed)
+                                          ▼
+                                        worker (no keys): pnpm install → pi -p → vite build
+                                          │  localhost:3301 → official Tinfoil Proxy → attested inference
+                                          ▼
+signer pulls dist/ + raw Pi transcript, recomputes tar.gz SHA-256 + file manifest + UnixFS CIDv1
+       + transcript SHA-256 itself → Ed25519 signature + nonce-bound V3 workload attestation
 ```
+
+## Architecture and profiles
+
+The enclave runs two containers from the same pinned image:
+
+* **`signer`** holds the attested `job-signing` key and `/tinfoil/attestation.sock`, serves the authenticated `/jobs` API through the shim (bound to the runtime's shim upstream address), and is only on a `closed` internal network. It never trusts worker-reported hashes: it fetches the worker's output, rejects empty/unsafe/mismatched archives before extraction, and computes every commitment itself.
+* **`worker`** runs the Pi CLI, the Tinfoil proxy and the build. It has `TINFOIL_API_KEY` but no signing key and no attestation socket, and only listens on the internal network.
+
+Tinfoil runs every container with all capabilities dropped, `no-new-privileges` and a read-only root, so isolation comes from the container split, not UID switching. Writable paths are explicit tmpfs mounts in the measured config.
+
+Each app type is a **profile**, measured as its own GitHub release:
+
+| Profile | Config | Release tags | Worker egress | Packages |
+| --- | --- | --- | --- | --- |
+| `offline` | `tinfoil-config.yml` | `vX.Y.Z` | allowlist: `inference.tinfoil.sh` only | baked offline pnpm store (below) |
+| `online` | `tinfoil-config.online.yml` (root of branch `profile/online`) | `vX.Y.Z-online` | open internet | anything from npm |
+
+The signer is egress-closed in both. Tinfoil deploys the root `tinfoil-config.yml` at the tag, so online releases are cut from `profile/online`. CI (`profile-sync.yml`) and the release workflow require that branch's root config to be byte-identical to `tinfoil-config.online.yml`. The profile and worker egress policy are set from measured `APP_PROFILE` and signed into `predicate.profile` / `predicate.worker_egress`. The verifier takes `--profile` and `--tag`, requires the signed profile to match the attested release tag (an `-online` release can never present as offline), and prints "built offline" or "built with internet access".
+
+Runtime: `cvm-version: "0.14.12"`. 0.14.10 rejects the `attestation` container field (instances hang at `started`); 0.15.x requires a manifest-pinned version which failed to download on the tested host.
 
 There is **no custom agent/tool loop**. Pi owns read/write/edit/bash/ls execution. The job wrapper only launches the CLI and the build. Pi `1.5.0` (`@earendil-works/pi-coding-agent`, the current package name of the Pi project) and official `tinfoil-proxy 0.2.9` are pinned; proxy release binaries are SHA-256 checked during image build. Both identities are recorded in the signed statement. Pi natively supports `openai-completions`, avoiding an API translation layer. The default is **`deepseek-v4-1-flash` (DeepSeek V4.1 Flash)**, the available DeepSeek Flash model returned by the attested `/v1/models` endpoint, with tool calling and a 1M-token context window. Listed prices are $0.60/M input and $1.45/M output tokens. No Kimi/Pro model is used. An authenticated streaming `/v1/responses` probe returned function-call items and argument deltas, but the final response changed the call/item IDs relative to the streaming items; nanocodex compatibility is not established or integrated.
 
@@ -68,7 +91,7 @@ curl -H "Authorization: Bearer $JOBS_BEARER_TOKEN" \
   -d '{"prompt":"Build an offline encrypted notes PWA"}' http://localhost:8080/jobs
 ```
 
-The service intentionally runs one job at a time (409 while busy), limits input size, and has an in-memory status index. `JOB_TIMEOUT_SECONDS` is caller policy for the process wall-clock budget (default 900 seconds, shared by install, Pi and build). Log volume never terminates Pi. Raw stdout streams byte-for-byte to a root-owned `0600` per-job `.pi.jsonl` beside its workspace under `/workspaces`; JSON event parsing is streaming, including large strings. Only a bounded human-readable assistant/tool summary tail is retained for job status; thinking deltas are omitted. Results, workspaces and logs remain on local storage until the container is removed; optionally mount a suitably sized tmpfs at `/workspaces`. Disk/write errors fail the job rather than silently losing the transcript. No retention service or restart recovery is implemented. Do not expose this to untrusted users.
+The service intentionally runs one job at a time (409 while busy), limits input size, and has an in-memory status index. `JOB_TIMEOUT_SECONDS` is caller policy for the process wall-clock budget (default 900 seconds, shared by install, Pi and build). Log volume never terminates Pi. Raw stdout streams byte-for-byte to a per-job `.pi.jsonl` in the worker; the signer fetches it and hashes it itself; JSON event parsing is streaming, including large strings. Only a bounded human-readable assistant/tool summary tail is retained for job status; thinking deltas are omitted. Results, workspaces and logs remain on local storage until the container is removed; optionally mount a suitably sized tmpfs at `/workspaces`. Disk/write errors fail the job rather than silently losing the transcript. No retention service or restart recovery is implemented. Do not expose this to untrusted users.
 
 ## Offline toolchain
 
@@ -87,7 +110,7 @@ The only allowed hostname is **`inference.tinfoil.sh`**, for TCP/443 HTTPS:
 
 This is specific to pinned **proxy 0.2.9 → tinfoil-go 0.16.2**, with explicit `-e inference.tinfoil.sh -r tinfoilsh/confidential-model-router`. No router discovery occurs. Source references: proxy `buildUpstream` calls `NewClientWithOptions` with the fixed host/repo; SDK `verifier/client/verify.go` calls `document.FetchVia` directly; `verifier/document/fetch.go` builds the host's nonce URL; the core verifier performs no network I/O. Complete V3 collateral and trust roots are supplied/embedded. Therefore **no GitHub, Sigstore, AMD KDS, ATC, registry, CDN or npm endpoints belong in this runtime allowlist**. These are not omitted accidentally: the included `tests/proxy-hosts.mjs` successfully initializes the official proxy through a CONNECT gate allowing only this host. GitHub release downloads and npm/Debian registries are **build-time only**. SDK/proxy upgrades may change this contract; rerun the gate test before updating the allowlist. Tinfoil only enforces IPv4 hostname resolution today.
 
-`harness/start.mjs` starts the official proxy and waits for `/verification-document` (the proxy only listens after successful verification), then starts the API. Production has no unverified direct API fallback. The proxy refreshes verification on key changes/expiry. Job statements retain its verification document; this is diagnostic metadata, not a substitute for independently checking the job's own attestation.
+`harness/worker-start.mjs` (worker) starts the official proxy and waits for `/verification-document` (the proxy only listens after successful verification), then starts the worker service. Production has no unverified direct API fallback. The proxy refreshes verification on key changes/expiry. Job statements retain its verification document; this is diagnostic metadata, not a substitute for independently checking the job's own attestation.
 
 ## Statements and verification
 
@@ -105,7 +128,7 @@ node verifier/cli.mjs statement.json artifact.tar.gz --repo ekrembal/tinfoil-exp
 
 The official V3 JavaScript verifier source is vendored unmodified at a pinned upstream commit because npm `tinfoil`/`@tinfoilsh/verifier 1.4.0` cannot verify the socket's nonce-bound V3 attested-key documents. See `verifier/vendor/PROVENANCE.md` (Apache-2.0). It verifies AMD/Intel hardware signatures, authenticated workload/config provenance and measurement/key binding with embedded trust roots and document collateral, without network calls. Do not replace this with signature-only checking.
 
-Dev mode (`DEV_MODE=1`) generates an ephemeral in-memory key and marks both statement and attestation as `dev/none`. Only dev mode accepts `MOCK_INFERENCE_URL`. The verifier rejects dev documents unless explicitly given `--allow-dev`; dev chains provide tamper detection **but no trusted authorship**. A real Tinfoil deployment and real job attested-key/socket verification still require deployment credentials and are not exercised by the local mock test.
+Dev mode (`DEV_MODE=1`) generates an ephemeral in-memory key and marks both statement and attestation as `dev/none`. Only dev mode accepts `MOCK_INFERENCE_URL`. The verifier rejects dev documents unless explicitly given `--allow-dev`; dev chains provide tamper detection **but no trusted authorship**. The local mock test does not exercise real attested keys or the socket; those were verified on real Tinfoil deployments (see below).
 
 A parent links **prompts/provenance**, not workspace state. Each job starts from the measured starter; the API does not accept parent source/artifacts or prove incremental source continuity. Parent artifacts are not downloaded or rehashed by the server; the offline verifier checks the supplied latest artifact and the signed ancestry. The config/image fields are declared metadata from deployment environment, not values the container can discover securely itself; the authoritative workload identity is the verified quote. For rollback resistance, independently pin/review the expected deployed config and SDK trust policy rather than accepting a repo name alone.
 
@@ -113,9 +136,19 @@ A parent links **prompts/provenance**, not workspace state. Each job starts from
 
 Each prompt-chain entry prints `attestation_verification` from the SDK's verified result, or `null` in development. For config-based V3 documents, `config.name`, `config.digest` and endorsement metadata identify the authenticated configuration; `runtime.repo/tag/commit/digest` identify the separately authenticated runtime. For release-based documents, `configRepo/codeTag/codeDigest` identify the verified release. **A runtime commit is not a config-repository commit.** The SDK does not expose a config Git SHA for every document format, so the verifier does not invent one or trust a statement/env-provided SHA. To identify a config Git commit, additionally resolve the authenticated config revision/digest or release tag through trusted signed release provenance for the expected repository; this repository does not implement that extra lookup. The authoritative binding here is the SDK-verified config/release identity plus the nonce-bound quote and endorsed signing key, not self-referential YAML metadata. The caller must still choose the trusted `--repo`; accepting the signer's choice of repository would not establish the intended workload.
 
-`tinfoil-config.yml` declares the attested signing key, attestation socket, four CPUs/8 GiB, the one-host allowlist, secrets and shim `/jobs` paths. **Replace the image digest placeholders before deployment**; do not deploy the zero digest. Publish the image and configure a Tinfoil measured release for the public config repository using Tinfoil's current release workflow/template. The public source repository is `ekrembal/tinfoil-experiments`; no container deployment has been performed. Set `TINFOIL_API_KEY` and `JOBS_BEARER_TOKEN` as Tinfoil secrets. Keep `DEV_MODE` and `MOCK_INFERENCE_URL` unset in production. `CONFIG_REPO` is an expected verification policy, not proof by itself. There is no `CONFIG_COMMIT` environment variable or statement field. The image digest is pinned in the measured configuration.
+Verified on Tinfoil (AMD SEV-SNP, 2 CPU / 8 GiB) with `deepseek-v4-1-flash`, verifier run without `--allow-dev`, and a one-byte artifact tamper rejected each time:
 
-Pi and build scripts run as UID/GID 1001, with a job-local HOME/cwd and a sanitized environment; bearer token and signing key are not passed to children, and `/data` and the mounted private key are root-only. This is **not a hostile-code sandbox**: the CLI has bash and can access readable filesystem paths, its inference API key and the allowed inference host; it may spawn processes. cwd is not a security boundary. No custom execution sandbox is provided. Do not submit hostile prompts or run multi-tenant workloads. Strong per-job isolation, resource quotas, descendant process containment, disk retention, dependency audits and reproducible application builds are future work. The enclave protects against its host, not against code you choose to run inside it.
+* `v0.1.3` (offline): shadcn counter PWA; workload attestation; signing key endorsed by the attestation.
+* `v0.1.5-online`: the agent installed `canvas-confetti` from npm; verifier reported "built with internet access (profile online)".
+
+Deploy: publish the image (`build-image.yml`), pin its digest in both configs, cut a measured release with Tinfoil's release workflow, and create an instance from the tag with `TINFOIL_API_KEY` and `JOBS_BEARER_TOKEN` as Tinfoil secrets. Keep `DEV_MODE` and `MOCK_INFERENCE_URL` unset. `CONFIG_REPO` is an expected verification policy, not proof by itself; there is no `CONFIG_COMMIT`.
+
+```sh
+node verifier/cli.mjs statement.json artifact.tar.gz --repo ekrembal/tinfoil-experiments \
+  --profile offline --tag v0.1.4 --log pi.jsonl
+```
+
+The signer attests the bytes the worker produced under the measured image and profile; it does not attest that agent-generated code is safe. The worker is **not a hostile-code sandbox**: Pi has bash, the inference API key and the profile's egress (open internet for `online`). Do not submit hostile prompts or run multi-tenant workloads. Per-job isolation, resource quotas, retention, dependency audits and reproducible application builds are future work. The enclave protects against its host, not against code you choose to run inside it.
 
 ## License
 
