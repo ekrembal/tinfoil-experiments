@@ -11,12 +11,12 @@ networks:
       - inference.tinfoil.sh
 containers:
   - name: harness
-    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:e9a2d2d2b0565fb75ec85a4fb63d4668313511ccfac21ab3ad95366f6b33338f
     keys: [job-signing]
     attestation: true
     networks: [inference]
     env:
-      - HARNESS_IMAGE_DIGEST: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      - HARNESS_IMAGE_DIGEST: "sha256:e9a2d2d2b0565fb75ec85a4fb63d4668313511ccfac21ab3ad95366f6b33338f"
       - CONFIG_REPO: "ekrembal/tinfoil-experiments"
       - MODEL: "deepseek-v4-1-flash"
       - JOB_TIMEOUT_SECONDS: "900"
