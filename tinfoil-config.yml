@@ -1,0 +1,29 @@
+cvm-version: "0.14.10"
+cpus: 4
+memory: 8192
+attested-keys:
+  - id: job-signing
+    key: ed25519
+networks:
+  inference:
+    egress: allowlist
+    allow:
+      - inference.tinfoil.sh
+containers:
+  - name: harness
+    image: ghcr.io/ekrembal/attestai-enclave@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    keys: [job-signing]
+    attestation: true
+    networks: [inference]
+    env:
+      - HARNESS_IMAGE_DIGEST: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      - CONFIG_REPO: "ekrembal/attestai-enclave"
+      - CONFIG_COMMIT: "0000000000000000000000000000000000000000"
+      - MODEL: "llama3-3-70b"
+    secrets:
+      - JOBS_BEARER_TOKEN
+      - TINFOIL_API_KEY
+shim:
+  upstream-container: harness
+  upstream-port: 8080
+  paths: ["/jobs", "/jobs/*"]

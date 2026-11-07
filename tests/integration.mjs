@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { writeFile, mkdir, rm } from 'node:fs/promises';
+import * as tar from 'tar';
+import { mockServer } from './mock.mjs';
+import { verifyArtifact } from '../verifier/cli.mjs';
+const token='integration-test-token-not-a-secret';
+const mockAPI=mockServer();await new Promise(r=>mockAPI.listen(3400,'127.0.0.1',r));
+const child=spawn('node',['harness/start.mjs'],{cwd:'/opt/app',env:{...process.env,DEV_MODE:'1',MOCK_INFERENCE_URL:'http://127.0.0.1:3400',JOBS_BEARER_TOKEN:token},stdio:['ignore','pipe','pipe']});
+child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);
+const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+const get=(url,init={})=>fetch('http://127.0.0.1:8080'+url,{...init,headers});
+try {
+  for(let i=0;i<100;i++){try{await get('/jobs/not-found');break;}catch{await new Promise(r=>setTimeout(r,100));}}
+  assert.equal((await fetch('http://127.0.0.1:8080/jobs')).status,401);
+  assert.equal((await get('/jobs',{method:'POST',body:'{}'})).status,400);
+  assert.equal((await get('/jobs',{method:'POST',body:'{'})).status,400);
+  const create=await get('/jobs',{method:'POST',body:JSON.stringify({prompt:'Create a small shadcn PWA with an interactive counter.'})});
+  assert.equal(create.status,202);const {id}=await create.json();
+  console.log('JOB ID:',id);
+  assert.equal((await get('/jobs',{method:'POST',body:'{"prompt":"busy"}'})).status,409);
+  assert.equal((await get(`/jobs/${id}/artifact`)).status,409);
+  let job;
+  for(let i=0;i<600;i++){job=await(await get(`/jobs/${id}`)).json();if(['completed','failed'].includes(job.status))break;await new Promise(r=>setTimeout(r,500));}
+  assert.equal(job.status,'completed',job.logs);
+  assert.match(job.logs,/reused 465, downloaded 0/);
+  assert.match(job.logs,/agent: pi 1.5.0/);
+  assert.match(job.logs,/PWA v1.0.0/);
+  const envelope=await(await get(`/jobs/${id}/statement`)).json();
+  const artifact=Buffer.from(await(await get(`/jobs/${id}/artifact`)).arrayBuffer());
+  await mkdir('/evidence',{recursive:true});
+  await writeFile('/evidence/statement.json',JSON.stringify(envelope,null,2));await writeFile('/evidence/artifact.tar.gz',artifact);await writeFile('/evidence/job.log',job.logs);
+  await rm('/evidence/dist',{recursive:true,force:true});
+  await tar.x({file:'/evidence/artifact.tar.gz',cwd:'/evidence'});
+  const chain=await verifyArtifact(envelope,'/evidence/artifact.tar.gz',{allowDev:true});
+  console.log('RETURNED STATEMENT:',JSON.stringify(envelope,null,2));
+  console.log('PASS: real Pi CLI streamed tool calls; offline pnpm install; shadcn PWA vite build');
+  console.log('PASS: API auth, empty/invalid requests, busy, incomplete artifact');
+  console.log('PASS: verifier signature + tar SHA256 + per-file manifest + CID; chain length',chain.length);
+  await assert.rejects(verifyArtifact(envelope,'/evidence/artifact.tar.gz'),/development attestation rejected/);
+  artifact[Math.floor(artifact.length/2)]^=1;await writeFile('/evidence/tampered.tar.gz',artifact);
+  await assert.rejects(verifyArtifact(envelope,'/evidence/tampered.tar.gz',{allowDev:true}),/artifact sha256 mismatch/);
+  console.log('PASS: verifier rejects one-byte artifact tamper and rejects dev without opt-in');
+  const bad=structuredClone(envelope);bad.statement.predicate.prompt='forged';
+  assert.equal((await get('/jobs',{method:'POST',body:JSON.stringify({prompt:'extend',parent_statement:bad})})).status,400);
+  console.log('PASS: API rejects invalid parent signature before extending');
+}finally{child.kill('SIGTERM');mockAPI.close();}
