@@ -11,7 +11,7 @@ networks:
     egress: open
 containers:
   - name: signer
-    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585
+    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:70e6939b00a6fba19d80cbbbe19a18195454663ecae138ba788116ef60d7581d
     command: ["node", "harness/start.mjs"]
     keys: [job-signing]
     attestation: true
@@ -22,7 +22,7 @@ containers:
       /workspaces: "rw,noexec"
       /root: "rw,noexec,size=4096"
     env:
-      - HARNESS_IMAGE_DIGEST: "sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585"
+      - HARNESS_IMAGE_DIGEST: "sha256:70e6939b00a6fba19d80cbbbe19a18195454663ecae138ba788116ef60d7581d"
       - CONFIG_REPO: "ekrembal/tinfoil-experiments"
       - APP_PROFILE: "online"
       - MAX_ARCHIVE_BYTES: "67108864"
@@ -35,7 +35,7 @@ containers:
     secrets:
       - JOBS_BEARER_TOKEN
   - name: worker
-    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:13a0fd895a783ce1800c7c36fc68a21ef0b824296f20f39495a970da47571585
+    image: ghcr.io/ekrembal/tinfoil-experiments@sha256:70e6939b00a6fba19d80cbbbe19a18195454663ecae138ba788116ef60d7581d
     command: ["node", "harness/worker-start.mjs"]
     networks: [internet, internal]
     tmpfs:
