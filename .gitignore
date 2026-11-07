@@ -1,0 +1,5 @@
+node_modules/
+evidence/
+.data/
+*.log
+verifier/vendor/dist/
