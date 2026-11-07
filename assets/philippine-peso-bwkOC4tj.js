@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`philippine-peso`,size:24,node:[[`path`,{d:`M4 12h16`,key:`1lakjw`}],[`path`,{d:`M4 8h16`,key:`y22wk4`}],[`path`,{d:`M6 20V5a1 1 0 011-1h5a6 6 0 010 12H6`,key:`1szfpi`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

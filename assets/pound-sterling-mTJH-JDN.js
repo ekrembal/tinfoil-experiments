@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`pound-sterling`,size:24,node:[[`path`,{d:`M17 18a2 2 0 01-2 2H5a3 3 0 003-3V8a4 4 0 018 0`,key:`cv9piq`}],[`path`,{d:`M6 12h7`,key:`1re8yl`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

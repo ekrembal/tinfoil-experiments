@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`saudi-riyal`,size:24,node:[[`path`,{d:`M10 2.977v13.19a2 2 0 01-1.23 1.846L4 19.999`,key:`1v3jsl`}],[`path`,{d:`M14 4v9.523a1 1 0 001.371.928L19 13`,key:`nugghf`}],[`path`,{d:`m19 18-5 2`,key:`1vcw15`}],[`path`,{d:`M19 8 4 14`,key:`t5tnti`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

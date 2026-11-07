@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`circle-chevrons-down`,size:24,node:[[`path`,{d:`M9 14L12 17L15 14`,key:`hpyt1r`}],[`path`,{d:`M9 8L12 11L15 8`,key:`19orua`}],[`circle`,{cx:`12`,cy:`12`,r:`10`,key:`1mglay`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

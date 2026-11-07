@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`square-letter-p`,size:24,node:[[`path`,{d:`M9 12h4a2 2 0 0 0 0-4H9.5a.5.5 0 0 0-.5.5V16`,key:`15uh3t`}],[`rect`,{width:`18`,height:`18`,x:`3`,y:`3`,rx:`2`,key:`afitv7`}]],aliases:[`parking-square`,`square-parking`]};t.node;var n=e(t);export{t as __iconData,n as default};

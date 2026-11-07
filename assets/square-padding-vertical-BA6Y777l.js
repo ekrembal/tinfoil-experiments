@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`square-padding-vertical`,size:24,node:[[`rect`,{x:`3`,y:`3`,width:`18`,height:`18`,rx:`2`,key:`h1oib`}],[`path`,{d:`M8 17h8`,key:`wh5c61`}],[`path`,{d:`M8 7h8`,key:`i86dvs`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

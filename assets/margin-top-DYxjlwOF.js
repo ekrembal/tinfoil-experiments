@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`margin-top`,size:24,node:[[`rect`,{x:`9`,y:`9`,width:`6`,height:`6`,rx:`1`,key:`1ssd4o`}],[`path`,{d:`M3 3h18`,key:`o7r712`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

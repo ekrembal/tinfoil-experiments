@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`letter-c`,size:24,node:[[`path`,{d:`M19 6.708a8 8 0 100 10.584`,key:`raljny`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

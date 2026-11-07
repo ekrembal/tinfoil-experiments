@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`indian-rupee`,size:24,node:[[`path`,{d:`m14 20-8-8h4c5.333 0 5.333-8 0-8`,key:`cvo5tb`}],[`path`,{d:`M6 4h12`,key:`1x2ag7`}],[`path`,{d:`M6 8h12`,key:`6g4wlu`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

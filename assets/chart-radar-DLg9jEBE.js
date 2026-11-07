@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`chart-radar`,size:24,node:[[`path`,{d:`M12 2v10`,key:`mnfbl`}],[`path`,{d:`m16 18 3.085-8.125L12 4.103 3.473 9.442l3.196 10.554z`,key:`h34id`}],[`path`,{d:`m2 9 10 3 6 9`,key:`rxmbgh`}],[`path`,{d:`m6 21 6-9 10-3`,key:`4hdcm7`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

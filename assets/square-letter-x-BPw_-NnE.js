@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`square-letter-x`,size:24,node:[[`path`,{d:`m9 16 6-8`,key:`1u7o9k`}],[`path`,{d:`m9 8 6 8`,key:`1csz0j`}],[`rect`,{x:`3`,y:`3`,width:`18`,height:`18`,rx:`2`,key:`h1oib`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

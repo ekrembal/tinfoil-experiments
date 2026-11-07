@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`swiss-franc`,size:24,node:[[`path`,{d:`M10 10h7`,key:`jlzm20`}],[`path`,{d:`M10 20V5a1 1 0 011-1h7`,key:`1ru8sx`}],[`path`,{d:`M6 16h9`,key:`2py0wn`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

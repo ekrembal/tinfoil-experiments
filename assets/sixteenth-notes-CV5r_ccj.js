@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`sixteenth-notes`,size:24,node:[[`path`,{d:`M21 16V3a1 1 0 0 0-1.28-.96l-10 2.917a1 1 0 0 0-.72.96V19`,key:`uy6ho8`}],[`path`,{d:`M21 6 9 9.5`,key:`1w47ha`}],[`circle`,{cx:`18`,cy:`16`,r:`3`,key:`1hluhg`}],[`circle`,{cx:`6`,cy:`19`,r:`3`,key:`1kj8tv`}]],aliases:[`music-4`]};t.node;var n=e(t);export{t as __iconData,n as default};

@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`tombstone`,size:24,node:[[`path`,{d:`M11 10h2`,key:`1d6wy4`}],[`path`,{d:`M19 21V10a7 7 0 00-14 0v11`,key:`1f1hiz`}],[`path`,{d:`M2 21h20`,key:`1nyx9w`}],[`path`,{d:`M9 14h6`,key:`159ibu`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

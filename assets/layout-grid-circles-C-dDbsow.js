@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`layout-grid-circles`,size:24,node:[[`circle`,{cx:`17.5`,cy:`17.5`,r:`3.5`,key:`w3z12y`}],[`circle`,{cx:`17.5`,cy:`6.5`,r:`3.5`,key:`1dwebm`}],[`circle`,{cx:`6.5`,cy:`17.5`,r:`3.5`,key:`1sut0i`}],[`circle`,{cx:`6.5`,cy:`6.5`,r:`3.5`,key:`hiq0pm`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`azerbaijani-manat`,size:24,node:[[`path`,{d:`M12 4v16`,key:`1654pz`}],[`path`,{d:`M18 20v-8a6 6 0 00-12 0v8`,key:`1ekwy4`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

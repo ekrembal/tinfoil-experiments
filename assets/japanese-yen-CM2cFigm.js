@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`japanese-yen`,size:24,node:[[`path`,{d:`M12 12v8`,key:`1by136`}],[`path`,{d:`m6 4 6 8 6-8`,key:`15qpi5`}],[`path`,{d:`M8 13h8`,key:`1s9po7`}],[`path`,{d:`M8 17h8`,key:`wh5c61`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

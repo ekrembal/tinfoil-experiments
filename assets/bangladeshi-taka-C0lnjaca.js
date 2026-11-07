@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`bangladeshi-taka`,size:24,node:[[`path`,{d:`M6 5a2 2 0 0 1 4 0v12a4 4 0 0 0 8 0 2 2 0 0 0-4 0`,key:`1rv5si`}],[`path`,{d:`M6 9h12`,key:`oae0tv`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

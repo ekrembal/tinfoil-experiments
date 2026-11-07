@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`square-chevrons-right`,size:24,node:[[`path`,{d:`M14 15L17 12L14 9`,key:`1hxjqw`}],[`path`,{d:`M8 15L11 12L8 9`,key:`1wss1f`}],[`rect`,{x:`3`,y:`3`,width:`18`,height:`18`,rx:`2`,key:`h1oib`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`letter-spacing`,size:24,node:[[`path`,{d:`M15 14H9`,key:`u4f7rb`}],[`path`,{d:`M21 3v18`,key:`fnf4zc`}],[`path`,{d:`M3 3v18`,key:`k760nc`}],[`path`,{d:`m8 16 3.453-7.648a.6.6 0 011.094.001L16 16`,key:`16ilm2`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

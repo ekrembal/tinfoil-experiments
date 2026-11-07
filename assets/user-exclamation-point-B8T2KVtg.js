@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`user-exclamation-point`,size:24,node:[[`path`,{d:`M15 15H9a4 4 0 00-4 4v2`,key:`1pyotl`}],[`path`,{d:`M18.988 13v4`,key:`d427d`}],[`path`,{d:`M18.988 21h.01`,key:`1jtj2q`}],[`circle`,{cx:`12`,cy:`7`,r:`4`,key:`17ys0d`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

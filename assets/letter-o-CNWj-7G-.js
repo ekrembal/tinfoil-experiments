@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`letter-o`,size:24,node:[[`circle`,{cx:`12`,cy:`12`,r:`8`,key:`46899m`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

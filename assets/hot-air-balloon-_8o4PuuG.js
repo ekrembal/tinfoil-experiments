@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`hot-air-balloon`,size:24,node:[[`path`,{d:`M11.5 18C10 15 9 12 9 9a3 7 0 0 1 6 0c0 3-1 6-2.5 9`,key:`kp3qpo`}],[`path`,{d:`M15 18c3-3 5-5 5-9A8 7 0 0 0 4 9c0 4 2 6 5 9`,key:`dn6qp0`}],[`path`,{d:`M15 18H9v3a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1z`,key:`j2zuhx`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

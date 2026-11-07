@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`chart-bell-curve`,size:24,node:[[`path`,{d:`M3 3v16a2 2 0 0 0 2 2h16`,key:`c24i48`}],[`path`,{d:`M7 16c3.5 0 2.5-10 6-10s2.5 10 6 10`,key:`5h6g7j`}]]};t.node;var n=e(t);export{t as __iconData,n as default};

@@ -1,0 +1,1 @@
+import{t as e}from"./index-DvkqNcQ9.js";var t={name:`square-padding`,size:24,node:[[`rect`,{x:`3`,y:`3`,width:`18`,height:`18`,rx:`2`,key:`h1oib`}],[`path`,{d:`M14 17h-4`,key:`1vipgj`}],[`path`,{d:`M14 7h-4`,key:`lfj1qs`}],[`path`,{d:`M17 14v-4`,key:`7qxlkr`}],[`path`,{d:`M7 14v-4`,key:`1upvtr`}]]};t.node;var n=e(t);export{t as __iconData,n as default};
