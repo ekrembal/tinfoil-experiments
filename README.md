@@ -59,6 +59,8 @@ Set `JOBS_BEARER_TOKEN` (at least 16 characters) as a Tinfoil secret. Every rout
 * `GET /jobs/:id/artifact` → gzip tar containing `dist/` (409 before completed).
 * `GET /jobs/:id/statement` → signed envelope (409 before completed).
 * `GET /jobs/:id/log` → streamed raw Pi JSON events, including thinking and tool contents, with the same bearer authentication. Available during execution and after failures (409 until the file exists). Running downloads are partial snapshots; the signed hash applies to the completed log.
+* `GET /jobs/:id/source` → gzip tar of the job's source workspace (no `node_modules`/`dist`), bearer-authenticated, 409 before completed. Its sha256 is signed as `predicate.source.sha256` (online profile).
+* `POST /jobs` (online profile) also accepts `"parent_source": "<base64 gzip tar>"` next to `parent_statement`. It is accepted only after the parent chain verifies and only if its sha256 equals `parent_statement.statement.predicate.source.sha256`; the job then starts from that source instead of the starter template. Unsafe archives (absolute paths, `..`, links, special files) and oversized bodies are rejected.
 
 Example (use an attestation-verifying client or `tinfoil http` for a real enclave, rather than trusting ordinary HTTPS alone):
 
@@ -88,6 +90,21 @@ The only allowed hostname is **`inference.tinfoil.sh`**, for TCP/443 HTTPS:
 This is specific to pinned **proxy 0.2.9 → tinfoil-go 0.16.2**, with explicit `-e inference.tinfoil.sh -r tinfoilsh/confidential-model-router`. No router discovery occurs. Source references: proxy `buildUpstream` calls `NewClientWithOptions` with the fixed host/repo; SDK `verifier/client/verify.go` calls `document.FetchVia` directly; `verifier/document/fetch.go` builds the host's nonce URL; the core verifier performs no network I/O. Complete V3 collateral and trust roots are supplied/embedded. Therefore **no GitHub, Sigstore, AMD KDS, ATC, registry, CDN or npm endpoints belong in this runtime allowlist**. These are not omitted accidentally: the included `tests/proxy-hosts.mjs` successfully initializes the official proxy through a CONNECT gate allowing only this host. GitHub release downloads and npm/Debian registries are **build-time only**. SDK/proxy upgrades may change this contract; rerun the gate test before updating the allowlist. Tinfoil only enforces IPv4 hostname resolution today.
 
 `harness/start.mjs` starts the official proxy and waits for `/verification-document` (the proxy only listens after successful verification), then starts the API. Production has no unverified direct API fallback. The proxy refreshes verification on key changes/expiry. Job statements retain its verification document; this is diagnostic metadata, not a substitute for independently checking the job's own attestation.
+
+## Online profile network policy
+
+`tinfoil-config.online.yml` (identical to the root `tinfoil-config.yml` on branch `profile/online`) is used for `-online` releases.
+
+| Container | Networks | Egress | Holds |
+| --- | --- | --- | --- |
+| `signer` | `internal` only | **closed** | `job-signing` key, attestation socket, `JOBS_BEARER_TOKEN` |
+| `worker` (Pi agent + npm build) | `internet`, `internal` | **open** (no allowlist) | `TINFOIL_API_KEY` only |
+
+The worker and the build may reach any host, registry or CDN. The signer never runs npm, the build or job code; it pulls the worker's dist/source/transcript over the internal network and recomputes the file manifest, UnixFS CID, tarball and source SHA-256 itself (the starter's `npm run manifest` CID output is never trusted). It refuses to sign if `dist/app.json` is missing or invalid (name ≤30, tagline ≤80, description ≤400, category in the store list, PascalCase lucide icon) or if `dist/index.html` or a bundled web manifest uses `/`- or `//`-rooted paths. The prompt is passed to Pi exactly as received; the harness adds no system prompt (Pi's own built-in prompt still applies).
+
+The statement records `predicate.profile: "online"`, `predicate.worker_egress: {"mode":"open"}` and `predicate.network: {"signer":"closed","worker":"open"}`; the verifier prints that the build had unrestricted internet access.
+
+> **Caveat:** online builds are **not reproducible and not network-isolated**. The agent and build can download and execute arbitrary code from the internet, and dependency versions may differ between runs. The attestation proves which measured harness, model and prompt produced the signed bytes, not that those bytes are safe or that their remote inputs were trustworthy.
 
 ## Statements and verification
 

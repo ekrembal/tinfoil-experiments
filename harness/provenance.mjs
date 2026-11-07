@@ -81,6 +81,7 @@ export async function verifyEnvelope(envelope,{allowDev=false,repo,keyAttestatio
   if(expectedTag!==undefined&&expectedProfile!==undefined&&releaseProfile(expectedTag)!==expectedProfile)throw new Error('expected profile and tag disagree');
   if(p.profile!==undefined&&canonical(p.worker_egress)!==canonical(buildProfile(p.profile).worker_egress))throw new Error('signed worker egress policy mismatch');
   if(expectedProfile!==undefined&&p.profile!==expectedProfile)throw new Error('unexpected build profile');
+  if(p.network!==undefined&&(p.profile!=='online'||canonical(p.network)!==canonical({signer:'closed',worker:'open'})))throw new Error('signed network policy mismatch');
   let attestationVerification=null;
   if (sha256(p.prompt)!==p.prompt_sha256) throw new Error('prompt digest mismatch');
   if (attestation.type==='dev/none') {
@@ -110,5 +111,5 @@ export async function verifyEnvelope(envelope,{allowDev=false,repo,keyAttestatio
     if (p.parent_statement_sha256!==sha256(canonical(parent.statement))) throw new Error('parent hash mismatch');
     chain=await verifyEnvelope(parent,{allowDev,repo,keyAttestation,depth:depth+1});
   } else if (p.parent_statement_sha256!==null) throw new Error('missing parent statement');
-  return [...chain,{prompt:p.prompt,model:p.model,profile:p.profile,worker_egress:p.worker_egress,statement_sha256:sha256(canonical(statement)),attestation_mode:p.attestation_mode||(p.mode==='dev'?'dev':'workload'),attestation_verification:attestationVerification}];
+  return [...chain,{prompt:p.prompt,model:p.model,profile:p.profile,worker_egress:p.worker_egress,network:p.network,statement_sha256:sha256(canonical(statement)),attestation_mode:p.attestation_mode||(p.mode==='dev'?'dev':'workload'),attestation_verification:attestationVerification}];
 }

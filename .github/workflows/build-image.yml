@@ -4,7 +4,7 @@ run-name: Build image ${{ inputs.version || github.sha }}
 
 on:
   push:
-    branches: [devin/attested-harness]
+    branches: [devin/attested-harness, profile/online, "devin/*-online-open-egress"]
     paths:
       - ".github/workflows/build-image.yml"
       - harness/**
