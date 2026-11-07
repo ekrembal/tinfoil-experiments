@@ -23,6 +23,18 @@ jobs:
       attestations: write   # publish the attestation
 
     steps:
+      - name: Checkout online release
+        if: endsWith(github.ref_name, '-online')
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Check online release against the main profile source
+        if: endsWith(github.ref_name, '-online')
+        shell: bash
+        run: |
+          git fetch --no-tags origin devin/attested-harness:refs/remotes/origin/devin/attested-harness
+          git show origin/devin/attested-harness:tinfoil-config.online.yml > "$RUNNER_TEMP/online-source.yml"
+          cmp "$RUNNER_TEMP/online-source.yml" tinfoil-config.yml
+          cmp tinfoil-config.yml tinfoil-config.online.yml
+          echo "PASS: online release root and measured profile match the main profile source byte-for-byte"
       - name: Measure image, attest, and publish the release
         uses: tinfoilsh/measure-image-action@beba4296251f7a9bc44b481ebafe4863509e4380 # v0.14.1
         with:

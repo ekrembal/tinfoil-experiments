@@ -1,0 +1,27 @@
+name: Online Profile Sync
+
+on:
+  push:
+    branches: [devin/attested-harness, profile/online]
+    paths:
+      - tinfoil-config.yml
+      - tinfoil-config.online.yml
+      - .github/workflows/profile-sync.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Compare online branch root with the main profile source
+        shell: bash
+        run: |
+          git fetch --no-tags origin devin/attested-harness:refs/remotes/origin/devin/attested-harness profile/online:refs/remotes/origin/profile/online
+          git show origin/devin/attested-harness:tinfoil-config.online.yml > "$RUNNER_TEMP/online-source.yml"
+          git show origin/profile/online:tinfoil-config.yml > "$RUNNER_TEMP/online-root.yml"
+          cmp "$RUNNER_TEMP/online-source.yml" "$RUNNER_TEMP/online-root.yml"
+          echo "PASS: online branch root is byte-identical to the main online profile source"
