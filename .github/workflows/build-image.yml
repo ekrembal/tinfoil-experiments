@@ -1,8 +1,17 @@
 name: Build Image
 
-run-name: Build image ${{ inputs.version }}
+run-name: Build image ${{ inputs.version || github.sha }}
 
 on:
+  push:
+    branches: [devin/attested-harness]
+    paths:
+      - .github/workflows/build-image.yml
+      - harness/**
+      - templates/**
+      - verifier/**
+      - package.json
+      - package-lock.json
   workflow_dispatch:
     inputs:
       version:
@@ -11,7 +20,7 @@ on:
         type: string
 
 concurrency:
-  group: tinfoil-experiments-image-${{ inputs.version }}
+  group: tinfoil-experiments-image-${{ inputs.version || github.ref }}
 
 jobs:
   build:
@@ -42,7 +51,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}},value=${{ inputs.version }}
+            type=semver,pattern={{version}},value=${{ inputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
             type=sha,format=short
 
       - name: Build and push Docker image
