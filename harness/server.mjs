@@ -52,10 +52,13 @@ async function run(job,prompt,parent) {
     if(canonical(result.metadata?.agent)!==canonical(AGENT)||result.metadata.model!==(process.env.MODEL||'deepseek-v4-1-flash'))throw new Error('unexpected worker agent or model');
     const archive=path.join(dir,'artifact.tar.gz');
     await pipeline(Readable.fromWeb((await request(`${route}/artifact`)).body),createWriteStream(archive,{mode:0o600}));
-    await tar.x({file:archive,cwd:dir,strict:true,preservePaths:true,noChown:true,filter:(name,entry)=>{
-      if(!['File','Directory'].includes(entry.type)||name.startsWith('/')||name.split('/').includes('..')||!(name==='dist'||name.startsWith('dist/')))throw new Error('unsafe archive entry');
+    let unsafe=false;
+    await tar.t({file:archive,strict:true,filter:(name,entry)=>{
+      if(!['File','Directory'].includes(entry.type)||name.startsWith('/')||name.split('/').includes('..')||!(name==='dist'||name.startsWith('dist/')))unsafe=true;
       return true;
     }});
+    if(unsafe)throw new Error('unsafe archive entry');
+    await tar.x({file:archive,cwd:dir,strict:true,preservePaths:true,noChown:true});
     const dist=path.join(dir,'dist');
     const description=await describeDist(dist);
     if(!description.manifest.length)throw new Error('empty build output');
