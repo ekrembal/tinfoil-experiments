@@ -1,4 +1,4 @@
-cvm-version: "0.15.3-rc.1@sha256:ddd2e76a629df1bd4ec507441a387ac5db010ebc1bda3e372756e095df8692eb"
+cvm-version: "0.14.12"
 cpus: 2
 memory: 8192
 attested-keys:

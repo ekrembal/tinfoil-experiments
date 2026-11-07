@@ -54,6 +54,13 @@ export async function signingKey(dev) {
 export function signature(statement,key) {
   return {public_key:createPublicKey(key).export({type:'spki',format:'pem'}),signature:sign(null,Buffer.from(canonical(statement)),key).toString('base64')};
 }
+export async function attestationMode(dev) {
+  if(dev)return 'dev';
+  try {
+    if(!(await lstat('/tinfoil/attestation.sock')).isSocket())throw new Error('attestation path is not a socket');
+    return 'workload';
+  }catch(error){if(error.code==='ENOENT')return 'attested-key';throw error;}
+}
 export async function attest(statement) {
   const nonce=sha256(canonical(statement));
   return new Promise((resolve,reject)=>{
@@ -62,7 +69,7 @@ export async function attest(statement) {
     });req.on('error',reject);req.on('timeout',()=>req.destroy(new Error('attestation timeout')));
   });
 }
-export async function verifyEnvelope(envelope,{allowDev=false,repo,depth=0}={}) {
+export async function verifyEnvelope(envelope,{allowDev=false,repo,keyAttestation,depth=0}={}) {
   if (depth>32) throw new Error('prompt chain too deep');
   const {statement,public_key,signature: sig,attestation,parent}=envelope;
   if (statement?._type!=='https://in-toto.io/Statement/v1' || statement.predicateType!=='https://attestai.local/job/v1') throw new Error('unsupported statement');
@@ -74,17 +81,24 @@ export async function verifyEnvelope(envelope,{allowDev=false,repo,depth=0}={}) 
   if (attestation.type==='dev/none') {
     if (!allowDev || p.mode!=='dev') throw new Error('development attestation rejected (use --allow-dev explicitly)');
   } else {
-    if (attestation.type!=='tinfoil/v3' || p.mode!=='tinfoil') throw new Error('invalid attestation type');
+    if (!['tinfoil/v3','tinfoil/attested-key'].includes(attestation.type) || p.mode!=='tinfoil') throw new Error('invalid attestation type');
     if (!repo || p.config.repo!==repo) throw new Error('expected config repository required');
+    let document=attestation.document,nonce=sha256(canonical(statement));
+    if(attestation.type==='tinfoil/attested-key'){
+      if(p.attestation_mode!=='attested-key')throw new Error('invalid attestation mode');
+      const evidence=attestation.key_attestation||keyAttestation;
+      if(!evidence||typeof evidence.document!=='string'||!evidence.document||!/^[0-9a-f]{64}$/.test(evidence.nonce))throw new Error('attested-key mode requires external key attestation document and nonce');
+      ({document,nonce}=evidence);
+    }else if(p.attestation_mode!==undefined&&p.attestation_mode!=='workload')throw new Error('invalid attestation mode');
     const v=await Verifier.create();
-    const result=await v.verifyV3(Buffer.from(attestation.document,'base64'),Buffer.from(sha256(canonical(statement)),'hex'),repo);
+    const result=await v.verifyV3(Buffer.from(document,'base64'),Buffer.from(nonce,'hex'),repo);
     if (result.cryptoMaterialData('job-signing',KEY_SPKI_V1_FORMAT)!==key.export({format:'der',type:'spki'}).toString('hex')) throw new Error('signing key not endorsed');
     attestationVerification=result.toJSON();
   }
   let chain=[];
   if (parent) {
     if (p.parent_statement_sha256!==sha256(canonical(parent.statement))) throw new Error('parent hash mismatch');
-    chain=await verifyEnvelope(parent,{allowDev,repo,depth:depth+1});
+    chain=await verifyEnvelope(parent,{allowDev,repo,keyAttestation,depth:depth+1});
   } else if (p.parent_statement_sha256!==null) throw new Error('missing parent statement');
-  return [...chain,{prompt:p.prompt,model:p.model,statement_sha256:sha256(canonical(statement)),attestation_verification:attestationVerification}];
+  return [...chain,{prompt:p.prompt,model:p.model,statement_sha256:sha256(canonical(statement)),attestation_mode:p.attestation_mode||(p.mode==='dev'?'dev':'workload'),attestation_verification:attestationVerification}];
 }

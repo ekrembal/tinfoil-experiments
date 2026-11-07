@@ -7,7 +7,7 @@ import { mkdir, writeFile, readFile, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import * as tar from 'tar';
 import { AGENT } from './runner.mjs';
-import { attest,canonical,sha256,sha256File,describeDist,signingKey,signature,verifyEnvelope } from './provenance.mjs';
+import { attest,attestationMode,canonical,sha256,sha256File,describeDist,signingKey,signature,verifyEnvelope } from './provenance.mjs';
 
 const dev=process.env.DEV_MODE==='1', token=process.env.JOBS_BEARER_TOKEN;
 if(process.env.TINFOIL_API_KEY)throw new Error('signer must not receive the inference key');
@@ -19,6 +19,7 @@ if(!Number.isSafeInteger(timeoutMs)||timeoutMs<=0||timeoutMs>2147483647)throw ne
 if(!token || token.length<16)throw new Error('JOBS_BEARER_TOKEN must be at least 16 characters');
 if(!dev && (!/^sha256:[0-9a-f]{64}$/.test(process.env.HARNESS_IMAGE_DIGEST||'') || !process.env.CONFIG_REPO))throw new Error('production requires image digest and expected config repository');
 const root=path.resolve(process.env.DATA_DIR||'/data'), key=await signingKey(dev),jobs=new Map();
+const attestation_mode=await attestationMode(dev);
 await mkdir(root,{recursive:true,mode:0o700});await chmod(root,0o700);
 const workRoot='/workspaces';await mkdir(workRoot,{recursive:true});await chmod(workRoot,0o711);
 let busy=false;
@@ -66,7 +67,9 @@ async function run(job,prompt,parent) {
     const statement={_type:'https://in-toto.io/Statement/v1',subject:[{name:'dist.tar.gz',digest:{sha256:await sha256File(archive)}}],predicateType:'https://attestai.local/job/v1',predicate:{mode:dev?'dev':'tinfoil',harness_image_digest:process.env.HARNESS_IMAGE_DIGEST||'dev/unpinned',config:{repo:process.env.CONFIG_REPO||'ekrembal/tinfoil-experiments'},model:process.env.MODEL||'deepseek-v4-1-flash',prompt,prompt_sha256:sha256(prompt),parent_statement_sha256:parent?sha256(canonical(parent.statement)):null,artifact:description,inference_verification:{...result.metadata.inference_verification,transcript_sha256}}};
     statement.predicate.agent=AGENT;
     statement.predicate.transcript={name:'pi.jsonl',sha256:transcript_sha256};
-    const envelope={statement,...signature(statement,key),attestation:dev?{type:'dev/none'}:await attest(statement),...(parent?{parent}:{})};
+    statement.predicate.attestation_mode=attestation_mode;
+    const attestation=attestation_mode==='dev'?{type:'dev/none'}:attestation_mode==='attested-key'?{type:'tinfoil/attested-key'}:await attest(statement);
+    const envelope={statement,...signature(statement,key),attestation,...(parent?{parent}:{})};
     await writeFile(path.join(dir,'statement.json'),JSON.stringify(envelope,null,2));
     job.status='completed';log('job completed\n');
   }catch(error){job.status='failed';log(`ERROR: ${error.message}\n`);}finally{busy=false;}
